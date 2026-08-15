@@ -8,7 +8,8 @@ Built for a small motion design team spread across multiple locations sharing Af
 
 | Button | Scope | Action |
 |---|---|---|
-| Build Structure | Whole project | Builds the folder structure and two documentation comps, then sorts every comp and footage item into it |
+| Build Structure | Whole project | Builds the full structure on first use; on existing structures, offers Rebuild Structure, Clean Up Root, or Cancel |
+| Clean up the root | Project root only | Sorts newly imported loose comps, assets, and folders without touching organised content |
 | Colour Code Layers | Current comp only | Applies a label colour to every layer, by name prefix or layer type |
 | Reduce Project | Whole project | Deletes anything unused by the selected composition(s), native After Effects command |
 | Collect files | Whole project | Gathers all assets into one folder for handoff, native After Effects command |
@@ -69,7 +70,13 @@ DATE and AE VERSION fill in automatically; everything else is a prompt to comple
 
 ### Build Structure
 
-Select your final composition(s) first, compositions only, then click. Required, if nothing (or something other than a composition) is selected, you'll get a "Please choose the main composition" alert. Runs inside one undo step. When it finishes, the selection is reset to just the comp(s) you started with, now inside `MASTER`, so they stay visible and selected instead of seeming to disappear into the new structure.
+On first use, select your final composition(s) or a folder of compositions, then click. If nothing (or something other than a composition or folder) is selected, you'll get a "Please choose the main composition" alert. The complete structure is created and the current full organisation workflow runs inside one undo step. When it finishes, the selection is restored to exactly what you started with.
+
+When a complete GuideKeeper structure already exists, Build Structure asks what to do:
+
+- **Rebuild Structure** runs the full organisation workflow again and requires a valid comp/folder selection.
+- **Clean Up Root** runs the lightweight root-only maintenance workflow described below.
+- **Cancel** closes the dialog without mutating the project or opening an undo group.
 
 **Compositions** are checked top to bottom, first match wins, case-insensitive substring match at the start of the name:
 
@@ -98,6 +105,16 @@ Select your final composition(s) first, compositions only, then click. Required,
 | Matches none of the above (includes solids) | `SOLIDS` |
 
 Folders that already existed before the script ran are never moved; if sorting leaves one empty, it's deleted during cleanup. The folders this tool builds are never deleted this way, even when empty.
+
+### Clean up the root
+
+Use this after importing new material into a project that already has a complete GuideKeeper structure. It processes only items sitting loose at the true project root:
+
+- Loose comps and footage use the same naming and file-type classification rules as Build Structure.
+- Loose folders move intact to `02_ASSETS/UNSORTED`; their children and hierarchy are not reorganised.
+- Structural folders, documentation comps, and every item already inside any folder remain untouched.
+
+The action is safe to rerun, preserves the current Project-panel selection, and runs inside one **Clean Up Root** undo group. If no complete GuideKeeper structure exists, it asks you to run Build Structure first and makes no mutation.
 
 ### Colour Code Layers
 
@@ -167,7 +184,9 @@ This standard contributor and CI path uses only Node's built-in test runner and 
 **This check is non-blocking maintainer/release validation only. It is not a contributor prerequisite and is not required in CI.** When After Effects is available:
 
 - Open the panel as both a floating window and a docked panel; resize it across the row/column breakpoint.
-- Run **Build Structure** on comps and a nested group folder; inspect the actual moves, preserved hierarchy, Project-panel labels, selection restoration, and repeat-run reuse.
+- Run **Build Structure** on comps and a nested group folder; inspect the actual moves, preserved hierarchy, Project-panel labels, and selection restoration.
+- Run Build Structure again and exercise **Rebuild Structure**, **Clean Up Root**, and **Cancel**; confirm Cancel is mutation-free and cleanup touches only loose root items.
+- Run **Clean up the root** twice with loose comps, footage, and an intact folder; confirm organised content and folder children remain untouched.
 - Run **Colour Code Layers** on representative prefix, light, camera, precomp, and unmatched layers with the default label palette.
 - Undo each mutating action once and confirm the project returns to its prior state; also exercise invalid-selection and host error alerts.
 - Open the native **Reduce Project** and **Collect Files** dialogs and cancel them without changing the test project.
