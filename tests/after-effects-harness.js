@@ -4,38 +4,16 @@ var fs = require("node:fs");
 var path = require("node:path");
 var vm = require("node:vm");
 
-function createHarness(options) {
-    options = options || {};
+function createHarness() {
     var nextId = 1;
     var alerts = [];
     var buttons = {};
-    var panelButtonLabels = [];
-    var panelUtilityLabels = [];
     var undoEvents = [];
     var commandLookups = [];
     var executedCommands = [];
-    var executedSelections = [];
     var commandIds = {};
-    var confirmationChoices = [];
-    var confirmations = [];
-    var dialogChoices = [];
-    var dialogs = [];
-    var windows = [];
 
-    function SolidSource(color, width, height) {
-        this.color = color || [0, 0, 0];
-        this.width = width || 0;
-        this.height = height || 0;
-    }
-
-    function TextDocument(text) {
-        this.text = text || "";
-        this.font = "";
-        this.fontSize = 0;
-        this.applyFill = true;
-        this.fillColor = [1, 1, 1];
-        this.applyStroke = false;
-    }
+    function SolidSource() {}
 
     function ProjectItem(project, name, parentFolder) {
         this.project = project;
@@ -67,7 +45,6 @@ function createHarness(options) {
     });
 
     ProjectItem.prototype.remove = function () {
-        if (this.failRemove) throw new Error("Cannot remove " + this.name);
         var index = this.project._items.indexOf(this);
         if (index === -1) throw new Error("Item is not in the project");
         if (this.numItems) throw new Error("Folder is not empty");
@@ -101,8 +78,6 @@ function createHarness(options) {
         this.name = name || "";
         this.source = source || null;
         this._label = 0;
-        this._textDocument = null;
-        this.position = [0, 0];
     }
 
     Object.defineProperty(Layer.prototype, "label", {
@@ -114,54 +89,6 @@ function createHarness(options) {
             this._label = value;
         }
     });
-
-    Object.defineProperty(Layer.prototype, "text", {
-        get: function () {
-            return this._textDocument ? this._textDocument.text : "";
-        },
-        set: function (value) {
-            if (!this._textDocument) this._textDocument = new TextDocument(value);
-            this._textDocument.text = value;
-        }
-    });
-
-    Layer.prototype.property = function (name) {
-        var layer = this;
-        if (name === "ADBE Text Properties") {
-            return {
-                property: function (propertyName) {
-                    if (propertyName !== "ADBE Text Document") return null;
-                    return {
-                        get value() {
-                            return layer._textDocument;
-                        },
-                        setValue: function (value) {
-                            if (layer.failSetText || (layer.comp && layer.comp.project.failSetText)) {
-                                throw new Error("Cannot set source text");
-                            }
-                            layer._textDocument = value;
-                        }
-                    };
-                }
-            };
-        }
-        if (name === "ADBE Transform Group") {
-            return {
-                property: function (propertyName) {
-                    if (propertyName !== "ADBE Position") return null;
-                    return {
-                        setValue: function (value) {
-                            if (layer.failPosition || (layer.comp && layer.comp.project.failPosition)) {
-                                throw new Error("Cannot set layer position");
-                            }
-                            layer.position = value.slice();
-                        }
-                    };
-                }
-            };
-        }
-        return null;
-    };
 
     function LightLayer(name, source) {
         Layer.call(this, name, source);
@@ -182,35 +109,14 @@ function createHarness(options) {
         this.height = settings.height || 1080;
         this.duration = settings.duration || 10;
         this.frameRate = settings.frameRate || 25;
-        this.bgColor = [0, 0, 0];
         this._layers = [];
 
         var comp = this;
         this.layers = {
             addText: function (text) {
-                if (project.failAddText ||
-                        project.failAddTextForCompName === comp.name) {
-                    throw new Error("Cannot add text layer");
-                }
                 var layer = new Layer("Text");
-                layer.comp = comp;
-                layer._textDocument = new TextDocument(text);
-                comp._layers.unshift(layer);
-                return layer;
-            },
-            addSolid: function (color, name, width, height, pixelAspect, duration) {
-                if (project.failAddSolid) throw new Error("Cannot add solid layer");
-                var source = project._addFootage(name, project.rootFolder, {
-                    solid: true,
-                    color: color,
-                    width: width,
-                    height: height
-                });
-                source.duration = duration;
-                source.pixelAspect = pixelAspect;
-                var layer = new Layer(name, source);
-                layer.comp = comp;
-                comp._layers.unshift(layer);
+                layer.text = text;
+                comp._layers.push(layer);
                 return layer;
             }
         };
@@ -302,7 +208,7 @@ function createHarness(options) {
     Project.prototype._addFootage = function (name, parentFolder, options) {
         options = options || {};
         var source = options.solid
-            ? new SolidSource(options.color, options.width, options.height)
+            ? new SolidSource()
             : { file: options.noFile ? null : { name: options.fileName || name } };
         var footage = new FootageItem(this, name, parentFolder || this.rootFolder, source);
         this._items.push(footage);
@@ -332,157 +238,44 @@ function createHarness(options) {
             undoEvents.push({ type: "end" });
         },
         findMenuCommandId: function (name) {
-            if (app.failFindMenuCommand) throw new Error("Command lookup failed");
             commandLookups.push(name);
             return commandIds[name] || 0;
         },
         executeCommand: function (id) {
             if (app.failExecuteCommand) throw new Error("Native command failed");
             executedCommands.push(id);
-            executedSelections.push(project.selection.slice());
         }
     };
 
     function Panel() {}
 
-    function FixedDate() {
-        return new Date(options.now);
-    }
-    FixedDate.prototype = Date.prototype;
-
-    function makeGraphics() {
-        if (options.scriptUIGraphics === false) return null;
-        return {
-            BrushType: { SOLID_COLOR: "solid-color" },
-            PenType: { SOLID_COLOR: "solid-color" },
-            font: { name: "Mock UI Font" },
-            foregroundColor: null,
-            operations: [],
-            newBrush: function (type, color) {
-                return { kind: "brush", type: type, color: color.slice() };
-            },
-            newPen: function (type, color, width) {
-                return { kind: "pen", type: type, color: color.slice(), width: width };
-            },
-            drawOSControl: function () {
-                this.operations.push({ type: "drawOSControl" });
-            },
-            rectPath: function (x, y, width, height) {
-                this.operations.push({
-                    type: "rectPath",
-                    x: x,
-                    y: y,
-                    width: width,
-                    height: height
-                });
-            },
-            fillPath: function (brush) {
-                this.operations.push({ type: "fillPath", brush: brush });
-            },
-            measureString: function (text) {
-                return [text.length * 7, 14];
-            },
-            drawString: function (text, pen, x, y) {
-                this.operations.push({
-                    type: "drawString",
-                    text: text,
-                    pen: pen,
-                    x: x,
-                    y: y
-                });
-            }
-        };
-    }
-
     function Window(kind, title) {
         this.kind = kind;
         this.title = title;
         this.size = [800, 200];
-        this._children = [];
-        this._closed = false;
-        this._showCount = 0;
         this.layout = {
             layout: function () {},
             resize: function () {}
         };
-        windows.push(this);
-    }
-
-    function addControl(owner, kind, label) {
-        var control = {
-            kind: kind,
-            label: label,
-            text: label,
-            onClick: null,
-            onDraw: null,
-            size: null,
-            enabled: true,
-            graphics: makeGraphics(),
-            parent: owner,
-            _children: []
-        };
-        control.add = function (childKind, bounds, childLabel) {
-            return addControl(control, childKind, childLabel);
-        };
-        owner._children.push(control);
-        if (kind === "button") buttons[label] = control;
-        if (kind === "button" && label === "?") panelUtilityLabels.push(label);
-        if (kind === "button"
-                && label !== "?"
-                && owningWindow(control) === windows[0]) {
-            panelButtonLabels.push(label);
-        }
-        return control;
-    }
-
-    function owningWindow(control) {
-        var owner = control;
-        while (owner && owner.parent) owner = owner.parent;
-        return owner;
-    }
-
-    function findControl(owner, kind, label) {
-        for (var i = 0; i < owner._children.length; i++) {
-            var child = owner._children[i];
-            if (child.kind === kind && child.label === label) return child;
-            var nested = findControl(child, kind, label);
-            if (nested) return nested;
-        }
-        return null;
     }
 
     Window.prototype.add = function (kind, bounds, label) {
-        return addControl(this, kind, label);
+        var button = {
+            kind: kind,
+            label: label,
+            onClick: null,
+            size: null
+        };
+        buttons[label] = button;
+        return button;
     };
     Window.prototype.center = function () {};
-    Window.prototype.close = function () {
-        this._closed = true;
-        if (typeof this.onClose === "function") this.onClose();
-    };
-    Window.prototype.show = function () {
-        this._showCount++;
-        if (this.kind !== "dialog") return;
-        var choice = dialogChoices.length ? dialogChoices.shift() : "Cancel";
-        dialogs.push({
-            title: this.title,
-            message: this._children[0] ? this._children[0].label : "",
-            choice: choice
-        });
-        var button = findControl(this, "button", choice);
-        if (!button || typeof button.onClick !== "function") {
-            throw new Error("Dialog button not found: " + choice);
-        }
-        button.onClick();
-    };
+    Window.prototype.show = function () {};
 
     var context = vm.createContext({
         app: app,
         alert: function (message) {
             alerts.push(String(message));
-        },
-        confirm: function (message) {
-            confirmations.push(String(message));
-            return confirmationChoices.length ? confirmationChoices.shift() : false;
         },
         Panel: Panel,
         Window: Window,
@@ -493,7 +286,6 @@ function createHarness(options) {
         LightLayer: LightLayer,
         CameraLayer: CameraLayer
     });
-    if (options.now) context.Date = FixedDate;
 
     var scriptPath = path.join(__dirname, "..", "GuideKeeper_AE.jsx");
     var source = fs.readFileSync(scriptPath, "utf8");
@@ -504,16 +296,6 @@ function createHarness(options) {
             throw new Error("Button not found: " + label);
         }
         buttons[label].onClick();
-    }
-
-    function controlText(owner) {
-        var text = [];
-        for (var i = 0; i < owner._children.length; i++) {
-            var child = owner._children[i];
-            if (child.kind === "statictext") text.push(child.label);
-            text = text.concat(controlText(child));
-        }
-        return text;
     }
 
     function pathOf(item) {
@@ -551,25 +333,17 @@ function createHarness(options) {
         app: app,
         project: project,
         alerts: alerts,
-        panelButtonLabels: panelButtonLabels,
-        panelUtilityLabels: panelUtilityLabels,
         undoEvents: undoEvents,
         commandLookups: commandLookups,
         executedCommands: executedCommands,
-        executedSelections: executedSelections,
         commandIds: commandIds,
-        confirmations: confirmations,
-        dialogs: dialogs,
-        windows: windows,
-        panel: windows[0],
         classes: {
             CompItem: CompItem,
             FolderItem: FolderItem,
             FootageItem: FootageItem,
             SolidSource: SolidSource,
             LightLayer: LightLayer,
-            CameraLayer: CameraLayer,
-            TextDocument: TextDocument
+            CameraLayer: CameraLayer
         },
         addFolder: function (name, parentFolder) {
             return project._addFolder(name, parentFolder || project.rootFolder, false);
@@ -586,20 +360,7 @@ function createHarness(options) {
         selectOnly: function (items) {
             project._selectOnly(items);
         },
-        chooseDialog: function (label) {
-            dialogChoices.push(label);
-        },
-        chooseConfirmation: function (accepted) {
-            confirmationChoices.push(accepted);
-        },
         click: click,
-        getButton: function (label) {
-            return buttons[label] || null;
-        },
-        findControl: function (kind, label) {
-            return findControl(windows[0], kind, label);
-        },
-        windowText: controlText,
         pathOf: pathOf,
         findByName: findByName,
         findFolderByPath: findFolderByPath
