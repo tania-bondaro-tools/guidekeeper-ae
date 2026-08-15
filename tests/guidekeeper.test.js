@@ -1,239 +1,366 @@
-"use strict";
+const assert = require("node:assert/strict");
+const test = require("node:test");
 
-var assert = require("node:assert/strict");
-var test = require("node:test");
-var createHarness = require("./after-effects-harness").createHarness;
+const { Harness } = require("./after-effects-harness");
 
-test("Build Structure classifies root items, preserves nested items, labels Project items, and restores selection", function () {
-    var h = createHarness();
-    var existingComps = h.addFolder("01_COMPS");
-    var master = h.addComp("Final_Master", null, {
+test("renders exactly the four workflow buttons in contract order", () => {
+    const harness = new Harness();
+
+    assert.deepEqual(
+        harness.buttons.map((button) => button.text),
+        ["Build Structure", "Colour Code Layers", "Reduce Project", "Collect files"]
+    );
+    assert.equal(harness.windows.length, 1);
+    assert.equal(harness.windows[0].shown, true);
+
+    harness.windows[0].size.width = 600;
+    harness.windows[0].onResize();
+    assert.equal(harness.windows[0].children[0].orientation, "row");
+    assert.equal(harness.windows[0].layout.resizeCalls, 1);
+
+    harness.windows[0].size.width = 300;
+    harness.windows[0].onResizing();
+    assert.equal(harness.windows[0].children[0].orientation, "column");
+    assert.equal(harness.windows[0].layout.resizeCalls, 2);
+});
+
+test("rejects invalid Build Structure selection before mutation or undo", () => {
+    const harness = new Harness();
+    const footage = harness.addFootage("clip", "clip.mov");
+    harness.select(footage);
+    const itemCount = harness.project.numItems;
+
+    harness.click("Build Structure");
+
+    assert.equal(harness.project.numItems, itemCount);
+    assert.deepEqual(harness.undoBegins, []);
+    assert.equal(harness.undoEnds, 0);
+    assert.match(harness.alerts[0], /only compositions and folders/i);
+
+    const emptyFolderHarness = new Harness();
+    const emptyFolder = emptyFolderHarness.addFolder("Empty");
+    emptyFolderHarness.select(emptyFolder);
+    const emptyFolderItemCount = emptyFolderHarness.project.numItems;
+    emptyFolderHarness.click("Build Structure");
+    assert.equal(emptyFolderHarness.project.numItems, emptyFolderItemCount);
+    assert.deepEqual(emptyFolderHarness.undoBegins, []);
+    assert.match(emptyFolderHarness.alerts[0], /must contain at least one composition/i);
+});
+
+test("always routes a directly selected root comp to MASTER and Red", () => {
+    const harness = new Harness();
+    const selected = harness.addComp("guide_selected");
+    harness.select(selected);
+
+    harness.click("Build Structure");
+
+    assert.equal(selected.parentFolder, harness.folderPath("01_COMPS", "MASTER"));
+    assert.equal(selected.label, 1);
+    assert.deepEqual(harness.project.selection, [selected]);
+});
+
+test("extracts selected-folder footage while preserving comp groups", () => {
+    const harness = new Harness();
+    const group = harness.addFolder("Campaign");
+    const master = harness.addComp("Main", group);
+    const nested = harness.addFolder("Nested", group);
+    const nestedComp = harness.addComp("Nested Main", nested);
+    const video = harness.addFootage("clip", "clip.mov", nested);
+    const assetsOnly = harness.addFolder("Assets Only", group);
+    const audio = harness.addFootage("voice", "voice.wav", assetsOnly);
+    harness.select(group);
+
+    harness.click("Build Structure");
+
+    assert.equal(group.parentFolder, harness.folderPath("01_COMPS", "MASTER"));
+    assert.equal(master.parentFolder, group);
+    assert.equal(nested.parentFolder, group);
+    assert.equal(nestedComp.parentFolder, nested);
+    assert.equal(master.label, 1);
+    assert.equal(nestedComp.label, 1);
+    assert.equal(video.parentFolder, harness.folderPath("02_ASSETS", "FOOTAGE"));
+    assert.equal(audio.parentFolder, harness.folderPath("02_ASSETS", "AUDIO"));
+    assert.equal(assetsOnly.removed, true);
+    assert.equal(group.removed, false);
+});
+
+test("routes an explicitly selected nested comp directly to MASTER", () => {
+    const harness = new Harness();
+    const group = harness.addFolder("Campaign");
+    const nested = harness.addFolder("Nested", group);
+    const selectedComp = harness.addComp("Selected Nested", nested);
+    const groupedComp = harness.addComp("Grouped Nested", nested);
+    harness.select(group, selectedComp);
+
+    harness.click("Build Structure");
+
+    const master = harness.folderPath("01_COMPS", "MASTER");
+    assert.equal(group.parentFolder, master);
+    assert.equal(selectedComp.parentFolder, master);
+    assert.equal(selectedComp.label, 1);
+    assert.equal(nested.parentFolder, group);
+    assert.equal(groupedComp.parentFolder, nested);
+    assert.equal(groupedComp.label, 1);
+    assert.deepEqual(harness.project.selection, [group, selectedComp]);
+});
+
+test("leaves unselected root folders and all of their contents in place", () => {
+    const harness = new Harness();
+    const selected = harness.addComp("Main");
+    const userFolder = harness.addFolder("Do Not Touch");
+    const nestedComp = harness.addComp("txt_inside", userFolder);
+    const nestedFootage = harness.addFootage("logo_inside", "logo.png", userFolder);
+    harness.select(selected);
+
+    harness.click("Build Structure");
+
+    assert.equal(userFolder.parentFolder, harness.project.rootFolder);
+    assert.equal(nestedComp.parentFolder, userFolder);
+    assert.equal(nestedFootage.parentFolder, userFolder);
+});
+
+test("routes every root comp and footage category to its destination", () => {
+    const harness = new Harness();
+    const selected = harness.addComp("guide_selected");
+    const routes = [
+        [harness.addComp("guide_overlay"), ["03_GUIDES"]],
+        [harness.addComp("Client Safe-Zone"), ["03_GUIDES"]],
+        [harness.addComp("txt_title"), ["01_COMPS", "PRECOMPS", "TEXT"]],
+        [harness.addComp("packshot_end"), ["01_COMPS", "PRECOMPS", "PACKSHOTS"]],
+        [harness.addComp("logo_brand"), ["01_COMPS", "PRECOMPS", "LOGOS"]],
+        [harness.addComp("bg_gradient"), ["01_COMPS", "PRECOMPS", "BACKGROUNDS"]],
+        [harness.addComp("vfx_glow"), ["01_COMPS", "PRECOMPS", "FX"]],
+        [harness.addComp("misc"), ["01_COMPS", "PRECOMPS", "UNSORTED"]],
+        [harness.addFootage("solid", null, null, true), ["SOLIDS"]],
+        [harness.addFootage("clip", "clip.mp4"), ["02_ASSETS", "FOOTAGE"]],
+        [harness.addFootage("packshot_product", "product.png"), ["02_ASSETS", "PACKSHOTS"]],
+        [harness.addFootage("logo_brand", "brand.ai"), ["02_ASSETS", "LOGOS"]],
+        [harness.addFootage("photo", "photo.jpg"), ["02_ASSETS", "IMAGES"]],
+        [harness.addFootage("music", "music.aac"), ["02_ASSETS", "AUDIO"]],
+        [harness.addFootage("unknown", "archive.xyz"), ["02_ASSETS", "UNSORTED"]]
+    ];
+    harness.select(selected);
+
+    harness.click("Build Structure");
+
+    assert.equal(selected.parentFolder, harness.folderPath("01_COMPS", "MASTER"));
+    for (const [item, destination] of routes) {
+        assert.equal(item.parentFolder, harness.folderPath(...destination), item.name);
+    }
+    assert.ok(harness.folderPath("01_COMPS", "LANGUAGES"));
+    assert.ok(harness.folderPath("01_COMPS", "PRECOMPS", "TRANSITIONS"));
+});
+
+test("reuses documentation comps in place without overwriting content", () => {
+    const harness = new Harness();
+    const selected = harness.addComp("Main", null, {
         width: 3840,
         height: 2160,
+        pixelAspect: 1.5,
         duration: 30,
         frameRate: 50
     });
-    var text = h.addComp("TXT_Title");
-    var guide = h.addComp("Client Safe-Zone Overlay");
-    var packshot = h.addComp("PACKSHOT_Product");
-    var logo = h.addComp("logo_Brand");
-    var background = h.addComp("BG_Gradient");
-    var effect = h.addComp("VFX_Sparks");
-    var unmatched = h.addComp("Scene_02");
-    var video = h.addFootage("clip.MOV");
-    var image = h.addFootage("still.PNG");
-    var packshotImage = h.addFootage("PACKSHOT_Hero.PSD");
-    var logoImage = h.addFootage("Logo_Client.AI");
-    var audio = h.addFootage("music.WAV");
-    var solid = h.addFootage("Red Solid 1", null, { solid: true });
-    var unknown = h.addFootage("data.bin");
-    var userFolder = h.addFolder("USER_WORK");
-    var nestedComp = h.addComp("txt_nested", userFolder);
-    var nestedFootage = h.addFootage("nested.mov", userFolder);
+    const userFolder = harness.addFolder("Notes");
+    const existingReadme = harness.addComp("!_README", userFolder);
+    const existingLayer = harness.addLayer(existingReadme, "Hand-authored");
+    harness.select(selected);
 
-    h.selectOnly([master]);
-    h.project.autoSelectCreated = true;
-    h.click("Build Structure");
+    harness.click("Build Structure");
+    harness.click("Build Structure");
 
-    assert.equal(h.findFolderByPath("01_COMPS"), existingComps, "existing structural folders are reused");
-    assert.equal(h.pathOf(master), "01_COMPS/MASTER/Final_Master");
-    assert.equal(h.pathOf(text), "01_COMPS/PRECOMPS/TEXT/TXT_Title");
-    assert.equal(h.pathOf(guide), "03_GUIDES/Client Safe-Zone Overlay");
-    assert.equal(h.pathOf(packshot), "01_COMPS/PRECOMPS/PACKSHOTS/PACKSHOT_Product");
-    assert.equal(h.pathOf(logo), "01_COMPS/PRECOMPS/LOGOS/logo_Brand");
-    assert.equal(h.pathOf(background), "01_COMPS/PRECOMPS/BACKGROUNDS/BG_Gradient");
-    assert.equal(h.pathOf(effect), "01_COMPS/PRECOMPS/FX/VFX_Sparks");
-    assert.equal(h.pathOf(unmatched), "01_COMPS/PRECOMPS/UNSORTED/Scene_02");
-    assert.equal(h.pathOf(video), "02_ASSETS/FOOTAGE/clip.MOV");
-    assert.equal(h.pathOf(image), "02_ASSETS/IMAGES/still.PNG");
-    assert.equal(h.pathOf(packshotImage), "02_ASSETS/PACKSHOTS/PACKSHOT_Hero.PSD");
-    assert.equal(h.pathOf(logoImage), "02_ASSETS/LOGOS/Logo_Client.AI");
-    assert.equal(h.pathOf(audio), "02_ASSETS/AUDIO/music.WAV");
-    assert.equal(h.pathOf(solid), "SOLIDS/Red Solid 1");
-    assert.equal(h.pathOf(unknown), "02_ASSETS/UNSORTED/data.bin");
-    assert.equal(h.pathOf(nestedComp), "USER_WORK/txt_nested", "nested comps stay outside root sorting");
-    assert.equal(h.pathOf(nestedFootage), "USER_WORK/nested.mov", "nested footage stays outside root sorting");
-    assert.equal(master.label, 1, "the selected MASTER comp is Red in the Project panel");
-    assert.ok(h.project._items.filter(function (item) {
-        return item instanceof h.classes.FolderItem;
-    }).every(function (folder) {
-        return folder.label === 15;
-    }), "every Project panel folder is Sandstone");
-    assert.deepEqual(h.project.selection, [master], "only the original selection remains selected");
-    assert.deepEqual(h.undoEvents, [
-        { type: "begin", name: "Build Structure" },
-        { type: "end" }
-    ]);
+    const workflow = harness.itemsNamed("!_WORKFLOW_GUIDE")[0];
+    assert.equal(existingReadme.parentFolder, userFolder);
+    assert.equal(existingReadme.numLayers, 1);
+    assert.equal(existingReadme.layer(1), existingLayer);
+    assert.equal(harness.itemsNamed("!_README").length, 1);
+    assert.equal(harness.itemsNamed("!_WORKFLOW_GUIDE").length, 1);
+    assert.equal(workflow.parentFolder, harness.project.rootFolder);
+    assert.equal(workflow.numLayers, 1);
+    assert.equal(workflow.width, 3840);
+    assert.equal(workflow.height, 2160);
+    assert.equal(workflow.pixelAspect, 1.5);
+    assert.equal(workflow.duration, 30);
+    assert.equal(workflow.frameRate, 50);
 });
 
-test("Build Structure reuses folders and documentation comps without overwriting edits", function () {
-    var h = createHarness();
-    var master = h.addComp("Master");
-    h.selectOnly([master]);
+test("is idempotent across repeated Build Structure runs", () => {
+    const harness = new Harness();
+    const selected = harness.addComp("Main");
+    harness.select(selected);
 
-    h.click("Build Structure");
+    harness.click("Build Structure");
+    harness.click("Build Structure");
 
-    var firstCount = h.project.numItems;
-    var readme = h.findByName("!_README")[0];
-    var workflowGuide = h.findByName("!_WORKFLOW_GUIDE")[0];
-    var masterFolder = h.findFolderByPath("01_COMPS/MASTER");
-    readme._layers[0].text = "Producer notes";
-    workflowGuide._layers[0].text = "Custom workflow";
-
-    h.click("Build Structure");
-
-    assert.equal(h.project.numItems, firstCount);
-    assert.deepEqual(h.findByName("!_README"), [readme]);
-    assert.deepEqual(h.findByName("!_WORKFLOW_GUIDE"), [workflowGuide]);
-    assert.equal(h.findFolderByPath("01_COMPS/MASTER"), masterFolder);
-    assert.equal(readme._layers[0].text, "Producer notes");
-    assert.equal(workflowGuide._layers[0].text, "Custom workflow");
-});
-
-test("Build Structure processes a selected group folder while preserving its hierarchy", function () {
-    var h = createHarness();
-    var group = h.addFolder("DELIVERABLE_GROUP");
-    var groupComp = h.addComp("Comp A", group);
-    var groupFootage = h.addFootage("plate.mp4", group);
-    var nested = h.addFolder("Nested", group);
-    var nestedComp = h.addComp("Comp B", nested);
-    h.selectOnly([group]);
-
-    h.click("Build Structure");
-
-    assert.equal(h.pathOf(group), "01_COMPS/MASTER/DELIVERABLE_GROUP");
-    assert.equal(h.pathOf(groupComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Comp A");
-    assert.equal(h.pathOf(nestedComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Nested/Comp B");
-    assert.equal(h.pathOf(groupFootage), "02_ASSETS/FOOTAGE/plate.mp4");
-    assert.equal(group.label, 15);
-    assert.equal(groupComp.label, 1);
-    assert.equal(nestedComp.label, 1);
-    assert.deepEqual(h.project.selection, [group]);
-});
-
-test("Colour Code Layers applies case-insensitive prefix precedence and type fallbacks", function () {
-    var h = createHarness();
-    var active = h.addComp("Active");
-    var precomp = h.addComp("Source");
-    var cases = [
-        { name: "TXT_Key", type: "light", expected: 1 },
-        { name: "audio_VO", expected: 2 },
-        { name: "Light 1", type: "light", expected: 3 },
-        { name: "shape_Circle", expected: 4 },
-        { name: "Camera 1", type: "camera", expected: 5 },
-        { name: "packshot_Product", expected: 6 },
-        { name: "logo_Client", expected: 7 },
-        { name: "Nested Comp", source: precomp, expected: 8 },
-        { name: "bg_Plate", expected: 9 },
-        { name: "adj_Grade", expected: 10 },
-        { name: "null_Control", expected: 11 },
-        { name: "msk_Matte", expected: 12 },
-        { name: "vfx_Glow", expected: 13 },
-        { name: "guide_Safe", expected: 14 },
-        { name: "Unclassified", expected: 0 }
+    const expectedFolders = [
+        ["01_COMPS"],
+        ["01_COMPS", "MASTER"],
+        ["01_COMPS", "LANGUAGES"],
+        ["01_COMPS", "PRECOMPS"],
+        ["01_COMPS", "PRECOMPS", "TEXT"],
+        ["01_COMPS", "PRECOMPS", "PACKSHOTS"],
+        ["01_COMPS", "PRECOMPS", "LOGOS"],
+        ["01_COMPS", "PRECOMPS", "TRANSITIONS"],
+        ["01_COMPS", "PRECOMPS", "BACKGROUNDS"],
+        ["01_COMPS", "PRECOMPS", "FX"],
+        ["01_COMPS", "PRECOMPS", "UNSORTED"],
+        ["02_ASSETS"],
+        ["02_ASSETS", "FOOTAGE"],
+        ["02_ASSETS", "IMAGES"],
+        ["02_ASSETS", "AUDIO"],
+        ["02_ASSETS", "PACKSHOTS"],
+        ["02_ASSETS", "LOGOS"],
+        ["02_ASSETS", "UNSORTED"],
+        ["03_GUIDES"],
+        ["SOLIDS"]
     ];
 
-    cases.forEach(function (entry) {
-        entry.layer = h.addLayer(active, entry);
-        entry.layer.label = 15;
-    });
-    h.project.activeItem = active;
-
-    h.click("Colour Code Layers");
-
-    cases.forEach(function (entry) {
-        assert.equal(entry.layer.label, entry.expected, entry.name);
-    });
-    assert.deepEqual(h.undoEvents, [
-        { type: "begin", name: "Colour Code Layers" },
-        { type: "end" }
-    ]);
+    for (const folderNames of expectedFolders) {
+        assert.ok(harness.folderPath(...folderNames), folderNames.join("/"));
+    }
+    assert.equal(harness.itemsNamed("!_README").length, 1);
+    assert.equal(harness.itemsNamed("!_WORKFLOW_GUIDE").length, 1);
+    assert.equal(harness.itemsNamed("!_README")[0].numLayers, 1);
+    assert.equal(harness.itemsNamed("!_WORKFLOW_GUIDE")[0].numLayers, 1);
+    assert.equal(harness.project._items.filter((item) => item instanceof harness.FolderItem).length, 20);
 });
 
-test("invalid selections alert without opening an undo group", function () {
-    var h = createHarness();
-    var footage = h.addFootage("clip.mov");
-    h.selectOnly([footage]);
+test("rejects selected canonical folders before they can dismantle the structure", () => {
+    const harness = new Harness();
+    const selected = harness.addComp("txt_title");
+    harness.select(selected);
+    harness.click("Build Structure");
+    const textFolder = harness.folderPath("01_COMPS", "PRECOMPS", "TEXT");
+    const itemCount = harness.project.numItems;
 
-    h.click("Build Structure");
-    h.click("Reduce Project");
-    h.click("Colour Code Layers");
+    harness.select(textFolder);
+    harness.click("Build Structure");
 
-    assert.deepEqual(h.alerts, [
-        "Please choose the main composition or a folder of compositions",
-        "Please choose the main composition or a folder of compositions",
-        "Open a composition first."
-    ]);
-    assert.deepEqual(h.undoEvents, []);
+    assert.equal(textFolder.parentFolder, harness.folderPath("01_COMPS", "PRECOMPS"));
+    assert.equal(harness.project.numItems, itemCount);
+    assert.equal(harness.undoBegins.length, 1);
+    assert.equal(harness.undoEnds, 1);
+    assert.match(harness.alerts[0], /structure folders/i);
 });
 
-test("undo groups close when mutating actions report an error", async function (t) {
-    await t.test("Build Structure", function () {
-        var h = createHarness();
-        var comp = h.addComp("Master");
-        h.selectOnly([comp]);
-        h.project.failAddFolder = true;
+test("applies project labels and every layer-label rule including Sandstone", () => {
+    const harness = new Harness();
+    const selectedFolder = harness.addFolder("Masters");
+    const selected = harness.addComp("Main", selectedFolder);
+    const unselectedFolder = harness.addFolder("User Folder");
+    const nonMaster = harness.addComp("txt_title");
+    nonMaster.label = 6;
+    harness.select(selectedFolder);
+    harness.click("Build Structure");
 
-        h.click("Build Structure");
+    for (const item of harness.project._items) {
+        if (item instanceof harness.FolderItem) {
+            assert.equal(item.label, 15, item.name);
+        }
+    }
+    assert.equal(selected.label, 1);
+    assert.equal(nonMaster.label, 6);
+    assert.equal(unselectedFolder.label, 15);
 
-        assert.match(h.alerts[0], /^Error: Error: Cannot create folder$/);
-        assert.deepEqual(h.undoEvents, [
-            { type: "begin", name: "Build Structure" },
-            { type: "end" }
-        ]);
-    });
+    const active = harness.addComp("Layer Labels");
+    const precomp = harness.addComp("Source");
+    const cases = [
+        [harness.addLayer(active, "TXT_Title"), 1],
+        [harness.addLayer(active, "Audio_VO"), 2],
+        [harness.addLayer(active, "shape_box"), 4],
+        [harness.addLayer(active, "packshot_product"), 6],
+        [harness.addLayer(active, "logo_brand"), 7],
+        [harness.addLayer(active, "bg_plate"), 9],
+        [harness.addLayer(active, "adj_grade"), 10],
+        [harness.addLayer(active, "null_control"), 11],
+        [harness.addLayer(active, "msk_matte"), 12],
+        [harness.addLayer(active, "vfx_glow"), 13],
+        [harness.addLayer(active, "guide_safe"), 14],
+        [harness.addLayer(active, "Light", { type: "light" }), 3],
+        [harness.addLayer(active, "Camera", { type: "camera" }), 5],
+        [harness.addLayer(active, "Nested", { source: precomp }), 8],
+        [harness.addLayer(active, "Naming violation"), 15]
+    ];
+    harness.project.activeItem = active;
 
-    await t.test("Colour Code Layers", function () {
-        var h = createHarness();
-        var comp = h.addComp("Active");
-        var layer = h.addLayer(comp, { name: "txt_Title" });
-        layer.failLabel = true;
-        h.project.activeItem = comp;
+    harness.click("Colour Code Layers");
 
-        h.click("Colour Code Layers");
-
-        assert.match(h.alerts[0], /^Error: Error: Cannot label layer txt_Title$/);
-        assert.deepEqual(h.undoEvents, [
-            { type: "begin", name: "Colour Code Layers" },
-            { type: "end" }
-        ]);
-    });
-
-    await t.test("Reduce Project", function () {
-        var h = createHarness();
-        var comp = h.addComp("Master");
-        h.selectOnly([comp]);
-        h.commandIds["Reduce Project"] = 42;
-        h.app.failExecuteCommand = true;
-
-        h.click("Reduce Project");
-
-        assert.match(h.alerts[0], /^Error executing 'Reduce Project':\nError: Native command failed$/);
-        assert.deepEqual(h.undoEvents, [
-            { type: "begin", name: "Reduce Project" },
-            { type: "end" }
-        ]);
-    });
+    for (const [layer, label] of cases) {
+        assert.equal(layer.label, label, layer.name);
+    }
+    assert.deepEqual(
+        harness.undoBegins,
+        ["GuideKeeper: Build Structure", "GuideKeeper: Colour Code Layers"]
+    );
+    assert.equal(harness.undoEnds, 2);
 });
 
-test("Reduce Project and Collect Files look up and invoke native commands", function () {
-    var h = createHarness();
-    var comp = h.addComp("Master");
-    h.selectOnly([comp]);
-    h.commandIds["Reduce Project"] = 42;
-    h.commandIds["Collect Files"] = 88;
+test("pairs Build Structure undo groups on success and mutation error", () => {
+    const success = new Harness();
+    const successComp = success.addComp("Main");
+    success.select(successComp);
+    success.click("Build Structure");
+    assert.deepEqual(success.undoBegins, ["GuideKeeper: Build Structure"]);
+    assert.equal(success.undoEnds, 1);
 
-    h.click("Reduce Project");
-    h.click("Collect files");
+    const failure = new Harness();
+    const failureComp = failure.addComp("Main");
+    failure.select(failureComp);
+    failure.failMoveItem = failureComp;
+    failure.click("Build Structure");
+    assert.deepEqual(failure.undoBegins, ["GuideKeeper: Build Structure"]);
+    assert.equal(failure.undoEnds, 1);
+    assert.deepEqual(failure.project.selection, [failureComp]);
+    assert.match(failure.alerts[0], /simulated move failure/i);
+    assert.match(failure.alerts[0], /undo/i);
+});
 
-    assert.deepEqual(h.commandLookups, [
-        "Reduce Project",
-        "Collect Files...",
-        "Collect Files"
-    ]);
-    assert.deepEqual(h.executedCommands, [42, 88]);
-    assert.deepEqual(h.undoEvents, [
-        { type: "begin", name: "Reduce Project" },
-        { type: "end" }
-    ]);
+test("Reduce Project resolves folder comps recursively and deduplicates them", () => {
+    const harness = new Harness();
+    const parent = harness.addFolder("Parent");
+    const compA = harness.addComp("A", parent);
+    const nested = harness.addFolder("Nested", parent);
+    const compB = harness.addComp("B", nested);
+    harness.select(parent, nested, compA);
+    harness.menuCommands["Reduce Project"] = 42;
+
+    harness.click("Reduce Project");
+
+    assert.deepEqual(harness.executedCommands, [42]);
+    assert.deepEqual(harness.executedSelections[0], [compA, compB]);
+    assert.deepEqual(harness.undoBegins, []);
+});
+
+test("Reduce Project restores the exact original selection when execution fails", () => {
+    const harness = new Harness();
+    const folder = harness.addFolder("Parent");
+    harness.addComp("A", folder);
+    const rootComp = harness.addComp("Root");
+    harness.select(folder, rootComp);
+    harness.menuCommands["Reduce Project"] = 42;
+    harness.executeError = new Error("native command failed");
+
+    harness.click("Reduce Project");
+
+    assert.deepEqual(harness.project.selection, [folder, rootComp]);
+    assert.match(harness.alerts[0], /original Project selection was restored/i);
+});
+
+test("Collect files tries both documented command names and executes only a nonzero ID", () => {
+    const ellipsis = new Harness();
+    ellipsis.menuCommands["Collect Files..."] = 10;
+    ellipsis.click("Collect files");
+    assert.deepEqual(ellipsis.findMenuCalls, ["Collect Files..."]);
+    assert.deepEqual(ellipsis.executedCommands, [10]);
+
+    const plain = new Harness();
+    plain.menuCommands["Collect Files"] = 11;
+    plain.click("Collect files");
+    assert.deepEqual(plain.findMenuCalls, ["Collect Files...", "Collect Files"]);
+    assert.deepEqual(plain.executedCommands, [11]);
+
+    const missing = new Harness();
+    missing.click("Collect files");
+    assert.deepEqual(missing.executedCommands, []);
+    assert.match(missing.alerts[0], /localized/i);
+    assert.deepEqual(missing.undoBegins, []);
 });
