@@ -58,6 +58,155 @@
 
     // ── UI ───────────────────────────────────────────────────────────
 
+    var GUIDEKEEPER_ACCENT = [0, 1, 163 / 255, 1];
+    var GUIDEKEEPER_ACCENT_TEXT = [0, 0, 0, 1];
+    var helpWindow = null;
+
+    function applyPrimaryButtonStyle(button) {
+        var graphics = button && button.graphics;
+        if (!graphics
+                || !graphics.BrushType
+                || !graphics.PenType
+                || typeof graphics.newBrush !== "function"
+                || typeof graphics.newPen !== "function"
+                || typeof graphics.drawOSControl !== "function"
+                || typeof graphics.rectPath !== "function"
+                || typeof graphics.fillPath !== "function"
+                || typeof graphics.measureString !== "function"
+                || typeof graphics.drawString !== "function") {
+            return false;
+        }
+
+        try {
+            var accentBrush = graphics.newBrush(
+                graphics.BrushType.SOLID_COLOR,
+                GUIDEKEEPER_ACCENT
+            );
+            var textPen = graphics.newPen(
+                graphics.PenType.SOLID_COLOR,
+                GUIDEKEEPER_ACCENT_TEXT,
+                1
+            );
+
+            button.onDraw = function () {
+                var g = this.graphics;
+                g.drawOSControl();
+                if (!this.enabled) return;
+
+                var width = this.size.width || this.size[0];
+                var height = this.size.height || this.size[1];
+                var textSize = g.measureString(this.text, g.font);
+                var textWidth = textSize.width || textSize[0];
+                var textHeight = textSize.height || textSize[1];
+
+                g.rectPath(2, 2, width - 4, height - 4);
+                g.fillPath(accentBrush);
+                g.drawString(
+                    this.text,
+                    textPen,
+                    (width - textWidth) / 2,
+                    (height - textHeight) / 2,
+                    g.font
+                );
+            };
+            return true;
+        } catch (styleError) {
+            button.onDraw = null;
+            return false;
+        }
+    }
+
+    function applyAccentText(control) {
+        var graphics = control && control.graphics;
+        if (!graphics
+                || !graphics.PenType
+                || typeof graphics.newPen !== "function") {
+            return false;
+        }
+
+        try {
+            graphics.foregroundColor = graphics.newPen(
+                graphics.PenType.SOLID_COLOR,
+                GUIDEKEEPER_ACCENT,
+                1
+            );
+            return true;
+        } catch (styleError) {
+            return false;
+        }
+    }
+
+    function addHelpSection(container, heading, body) {
+        var section = container.add("group");
+        section.orientation = "column";
+        section.alignChildren = ["fill", "top"];
+        section.spacing = 2;
+
+        var title = section.add("statictext", undefined, heading);
+        applyAccentText(title);
+        var bodyText = section.add("statictext", undefined, body, { multiline: true });
+        bodyText.preferredSize = [360, 44];
+    }
+
+    function showHelpWindow() {
+        if (helpWindow) {
+            helpWindow.show();
+            helpWindow.active = true;
+            return;
+        }
+
+        helpWindow = new Window(
+            "palette",
+            "GuideKeeper Help",
+            undefined,
+            { closeButton: true, resizeable: true }
+        );
+        helpWindow.orientation = "column";
+        helpWindow.alignChildren = ["fill", "top"];
+        helpWindow.spacing = 8;
+        helpWindow.margins = 14;
+        helpWindow.minimumSize = [390, 420];
+
+        var heading = helpWindow.add("statictext", undefined, "GUIDEKEEPER HELP");
+        applyAccentText(heading);
+
+        addHelpSection(
+            helpWindow,
+            "Build Structure",
+            "Creates the GuideKeeper folders and organises the project. If a complete structure exists, choose Rebuild Structure to run the full workflow again."
+        );
+        addHelpSection(
+            helpWindow,
+            "Clean Up Root",
+            "Sorts newly imported root-level items into an existing GuideKeeper structure without reorganising content already inside folders."
+        );
+        addHelpSection(
+            helpWindow,
+            "Colour Code Current Comp",
+            "Applies the GuideKeeper naming and layer-type label convention to layers in the active composition."
+        );
+        addHelpSection(
+            helpWindow,
+            "Reduce Project",
+            "Confirms the resolved MASTER compositions, or selected compositions when no structure exists, before running After Effects' native Reduce Project command."
+        );
+        addHelpSection(
+            helpWindow,
+            "Selected folders and Rebuild",
+            "Select composition folders before Build Structure, or before its Rebuild Structure choice. Their groups are placed in 01_COMPS/MASTER while footage is sorted and supported OVERLORD and matched AI/PSD imports are preserved."
+        );
+
+        helpWindow.onClose = function () {
+            helpWindow = null;
+        };
+        helpWindow.onResizing = helpWindow.onResize = function () {
+            this.layout.resize();
+        };
+        helpWindow.layout.layout(true);
+        helpWindow.center();
+        helpWindow.show();
+    }
+
     function buildUI(thisObj) {
         var pal = (thisObj instanceof Panel)
             ? thisObj
@@ -65,22 +214,58 @@
 
         if (!pal) return null;
 
-        pal.orientation   = "row";
-        pal.alignChildren = ["center", "center"];
+        pal.orientation   = "column";
+        pal.alignChildren = ["fill", "top"];
         pal.spacing = 6;
         pal.margins = 8;
 
-        function addBtn(label, cb) {
-            var btn = pal.add("button", undefined, label);
+        var header = pal.add("group");
+        header.orientation = "row";
+        header.alignChildren = ["fill", "center"];
+        header.alignment = ["fill", "top"];
+        var panelTitle = header.add("statictext", undefined, "GuideKeeper");
+        panelTitle.alignment = ["fill", "center"];
+        var helpButton = header.add("button", undefined, "?");
+        helpButton.size = [28, 24];
+        helpButton.alignment = ["right", "center"];
+        helpButton.helpTip = "Open GuideKeeper Help.";
+        helpButton.onClick = showHelpWindow;
+
+        var actions = pal.add("group");
+        actions.orientation = "row";
+        actions.alignChildren = ["center", "center"];
+        actions.alignment = ["fill", "fill"];
+        actions.spacing = 6;
+
+        function addBtn(label, helpTip, cb) {
+            var btn = actions.add("button", undefined, label);
             btn.size = [150, 36];
+            btn.helpTip = helpTip;
             btn.onClick = cb;
             return btn;
         }
 
-        addBtn("Build Structure",          function () { buildStructure();   });
-        addBtn("Clean Up Root",            function () { cleanUpRoot();      });
-        addBtn("Colour Code Current Comp", function () { colourCodeLayers(); });
-        addBtn("Reduce Project",           function () { reduceProject();    });
+        var buildButton = addBtn(
+            "Build Structure",
+            "Creates or rebuilds the GuideKeeper structure and organises selected composition groups.",
+            function () { buildStructure(); }
+        );
+        addBtn(
+            "Clean Up Root",
+            "Sorts newly imported root-level items into an existing GuideKeeper structure.",
+            function () { cleanUpRoot(); }
+        );
+        addBtn(
+            "Colour Code Current Comp",
+            "Applies GuideKeeper label colours to layers in the current composition.",
+            function () { colourCodeLayers(); }
+        );
+        addBtn(
+            "Reduce Project",
+            "Keeps only assets used by MASTER compositions, or by manually selected compositions.",
+            function () { reduceProject(); }
+        );
+        applyPrimaryButtonStyle(buildButton);
 
         // Threshold below which buttons switch from row → column.
         // ~650px fits 4 text buttons (150px each) side by side with spacing/margins.
@@ -89,12 +274,13 @@
         function applyOrientation() {
             var w = (pal.size && pal.size[0]) ? pal.size[0] : ROW_THRESHOLD + 1;
             var newOri = (w >= ROW_THRESHOLD) ? "row" : "column";
-            if (pal.orientation !== newOri) {
-                pal.orientation = newOri;
+            if (actions.orientation !== newOri) {
+                actions.orientation = newOri;
                 pal.layout.layout(true);
             }
         }
 
+        applyOrientation();
         pal.layout.layout(true);
         pal.onResizing = function () { this.layout.resize(); };
         pal.onResize   = function () { applyOrientation(); };
