@@ -33,6 +33,7 @@ Everything below is the convention the script ships with by default. None of it 
         TRANSITIONS
         BACKGROUNDS
         FX
+        UNSORTED
 02_ASSETS/
     FOOTAGE
     IMAGES/
@@ -42,6 +43,7 @@ Everything below is the convention the script ships with by default. None of it 
     AUDIO
     PACKSHOTS
     LOGOS
+    UNSORTED
 03_GUIDES
 SOLIDS
 ```
@@ -92,7 +94,7 @@ When a complete GuideKeeper structure already exists, Build Structure asks what 
 | `logo_` | `01_COMPS/PRECOMPS/LOGOS` |
 | `bg_` | `01_COMPS/PRECOMPS/BACKGROUNDS` |
 | `vfx_` | `01_COMPS/PRECOMPS/FX` |
-| *(none of the above)* | `01_COMPS/PRECOMPS` |
+| *(none of the above)* | `01_COMPS/PRECOMPS/UNSORTED` |
 
 `LANGUAGES` and `TRANSITIONS` are built but never auto-populated: language versions are usually named with a country code that's too open-ended to guess reliably, and TRANSITIONS shares its prefix with FX, so there's no automatic way to tell them apart.
 
@@ -100,18 +102,31 @@ When a complete GuideKeeper structure already exists, Build Structure asks what 
 
 | If the footage... | Goes to |
 |---|---|
+| Uses After Effects' actual `SolidSource` type | `SOLIDS` |
 | Has a video extension (mp4, mov, avi, wmv, mkv, webm) | `02_ASSETS/FOOTAGE` |
 | Has an image extension and starts with `packshot_` | `02_ASSETS/PACKSHOTS` |
 | Has an image extension and starts with `logo_` | `02_ASSETS/LOGOS` |
 | Has an image extension, otherwise | `02_ASSETS/IMAGES` |
 | Has an audio extension (mp3, aac, wav, flac, ogg, alac) | `02_ASSETS/AUDIO` |
-| Matches none of the above (includes solids) | `SOLIDS` |
+| Matches none of the above | `02_ASSETS/UNSORTED` |
 
 Layered Illustrator and Photoshop imports are kept together. When an `.ai` or `.psd` footage item has a sibling folder named `<source basename> Layers` (case-insensitive), both move to `02_ASSETS/IMAGES`; the Layers folder and everything inside it stay intact. Matching uses the imported file or Project-item basename, so unrelated folders named only `Layers` are not coupled accidentally. An unmatched `.ai` or `.psd` item continues to use the normal image and prefix rules above.
 
 A folder named `OVERLORD` (case-insensitive) also moves intact to `02_ASSETS/IMAGES`, without inspecting or reorganising any of its children. These preserved OVERLORD and matched Layers folders are not removed by empty-folder cleanup.
 
-Other folders that already existed before the script ran are never moved by the normal Build workflow; if sorting leaves one empty, it's deleted during cleanup. The folders this tool builds are never deleted this way, even when empty. Explicit Rebuild processing of a selected composition folder can still extract its footage as documented, but it preserves any OVERLORD or matched AI/PSD group it encounters.
+Other loose root folders move intact to `02_ASSETS/UNSORTED`; their children and hierarchy are not reorganised. A folder explicitly selected as a composition group instead moves to `01_COMPS/MASTER`, keeps its comp hierarchy, and has its footage extracted by the normal asset rules. Selected composition groups preserve any OVERLORD or matched AI/PSD group they encounter. The folders GuideKeeper builds are reused on repeat runs and are never removed when empty.
+
+After Build or Rebuild, the only items intentionally left at the true project root are the four structural folders and the `!_README` / `!_WORKFLOW_GUIDE` documentation comps.
+
+### Project-panel labels
+
+Build, Rebuild, and Clean Up Root apply After Effects Project-panel labels separately from layer labels:
+
+- Every GuideKeeper workflow folder listed in the structure above uses label 15 (Sandstone).
+- Every composition anywhere below `01_COMPS/MASTER`, including comps inside nested selected groups, uses label 1 (Red).
+- Unrelated folders and comps outside `MASTER` keep their existing labels.
+
+These operations do not alter layer labels inside compositions. Use **Colour Code Layers** explicitly for that separate current-comp workflow.
 
 ### Clean up the root
 
@@ -120,9 +135,9 @@ Use this after importing new material into a project that already has a complete
 - Loose comps and footage use the same naming and file-type classification rules as Build Structure.
 - Loose `OVERLORD` and matched AI/PSD Layers folders move intact to `02_ASSETS/IMAGES` with their paired source item where applicable.
 - Other loose folders move intact to `02_ASSETS/UNSORTED`; their children and hierarchy are not reorganised.
-- Structural folders, documentation comps, and every item already inside any folder remain untouched.
+- Structural folders, documentation comps, and items already inside folders are not moved or reorganised; only the workflow-folder and recursive `MASTER` comp labels described above are refreshed.
 
-The action is safe to rerun, preserves the current Project-panel selection, and runs inside one **Clean Up Root** undo group. If no complete GuideKeeper structure exists, it asks you to run Build Structure first and makes no mutation.
+The action is safe to rerun, preserves the current Project-panel selection, refreshes workflow-folder and recursive `MASTER` comp labels, and runs inside one **Clean Up Root** undo group. If no complete GuideKeeper structure exists, it asks you to run Build Structure first and makes no mutation.
 
 ### Colour Code Layers
 
