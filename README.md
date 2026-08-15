@@ -35,7 +35,10 @@ Everything below is the convention the script ships with by default. None of it 
         FX
 02_ASSETS/
     FOOTAGE
-    IMAGES
+    IMAGES/
+        OVERLORD              (when imported)
+        <name>.ai + <name> Layers
+        <name>.psd + <name> Layers
     AUDIO
     PACKSHOTS
     LOGOS
@@ -104,14 +107,19 @@ When a complete GuideKeeper structure already exists, Build Structure asks what 
 | Has an audio extension (mp3, aac, wav, flac, ogg, alac) | `02_ASSETS/AUDIO` |
 | Matches none of the above (includes solids) | `SOLIDS` |
 
-Folders that already existed before the script ran are never moved; if sorting leaves one empty, it's deleted during cleanup. The folders this tool builds are never deleted this way, even when empty.
+Layered Illustrator and Photoshop imports are kept together. When an `.ai` or `.psd` footage item has a sibling folder named `<source basename> Layers` (case-insensitive), both move to `02_ASSETS/IMAGES`; the Layers folder and everything inside it stay intact. Matching uses the imported file or Project-item basename, so unrelated folders named only `Layers` are not coupled accidentally. An unmatched `.ai` or `.psd` item continues to use the normal image and prefix rules above.
+
+A folder named `OVERLORD` (case-insensitive) also moves intact to `02_ASSETS/IMAGES`, without inspecting or reorganising any of its children. These preserved OVERLORD and matched Layers folders are not removed by empty-folder cleanup.
+
+Other folders that already existed before the script ran are never moved by the normal Build workflow; if sorting leaves one empty, it's deleted during cleanup. The folders this tool builds are never deleted this way, even when empty. Explicit Rebuild processing of a selected composition folder can still extract its footage as documented, but it preserves any OVERLORD or matched AI/PSD group it encounters.
 
 ### Clean up the root
 
 Use this after importing new material into a project that already has a complete GuideKeeper structure. It processes only items sitting loose at the true project root:
 
 - Loose comps and footage use the same naming and file-type classification rules as Build Structure.
-- Loose folders move intact to `02_ASSETS/UNSORTED`; their children and hierarchy are not reorganised.
+- Loose `OVERLORD` and matched AI/PSD Layers folders move intact to `02_ASSETS/IMAGES` with their paired source item where applicable.
+- Other loose folders move intact to `02_ASSETS/UNSORTED`; their children and hierarchy are not reorganised.
 - Structural folders, documentation comps, and every item already inside any folder remain untouched.
 
 The action is safe to rerun, preserves the current Project-panel selection, and runs inside one **Clean Up Root** undo group. If no complete GuideKeeper structure exists, it asks you to run Build Structure first and makes no mutation.
@@ -185,6 +193,7 @@ This standard contributor and CI path uses only Node's built-in test runner and 
 
 - Open the panel as both a floating window and a docked panel; resize it across the row/column breakpoint.
 - Run **Build Structure** on comps and a nested group folder; inspect the actual moves, preserved hierarchy, Project-panel labels, and selection restoration.
+- Import representative OVERLORD, layered Illustrator, and layered Photoshop groups; confirm Build/Rebuild and root cleanup keep each hierarchy and source/Layers pair intact under `02_ASSETS/IMAGES`.
 - Run Build Structure again and exercise **Rebuild Structure**, **Clean Up Root**, and **Cancel**; confirm Cancel is mutation-free and cleanup touches only loose root items.
 - Run **Clean up the root** twice with loose comps, footage, and an intact folder; confirm organised content and folder children remain untouched.
 - Run **Colour Code Layers** on representative prefix, light, camera, precomp, and unmatched layers with the default label palette.
