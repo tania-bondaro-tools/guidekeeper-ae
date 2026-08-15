@@ -4,6 +4,14 @@ var assert = require("node:assert/strict");
 var test = require("node:test");
 var createHarness = require("./after-effects-harness").createHarness;
 
+function folderPaths(h) {
+    return h.project._items.filter(function (item) {
+        return item instanceof h.classes.FolderItem;
+    }).map(function (folder) {
+        return h.pathOf(folder);
+    }).sort();
+}
+
 test("Build Structure classifies root items, preserves nested items, labels Project items, and restores selection", function () {
     var h = createHarness();
     var existingComps = h.addFolder("01_COMPS");
@@ -35,6 +43,29 @@ test("Build Structure classifies root items, preserves nested items, labels Proj
     h.project.autoSelectCreated = true;
     h.click("Build Structure");
 
+    assert.deepEqual(folderPaths(h), [
+        "01_COMPS",
+        "01_COMPS/LANGUAGES",
+        "01_COMPS/MASTER",
+        "01_COMPS/PRECOMPS",
+        "01_COMPS/PRECOMPS/BACKGROUNDS",
+        "01_COMPS/PRECOMPS/FX",
+        "01_COMPS/PRECOMPS/LOGOS",
+        "01_COMPS/PRECOMPS/PACKSHOTS",
+        "01_COMPS/PRECOMPS/TEXT",
+        "01_COMPS/PRECOMPS/TRANSITIONS",
+        "01_COMPS/PRECOMPS/UNSORTED",
+        "02_ASSETS",
+        "02_ASSETS/AUDIO",
+        "02_ASSETS/FOOTAGE",
+        "02_ASSETS/IMAGES",
+        "02_ASSETS/LOGOS",
+        "02_ASSETS/PACKSHOTS",
+        "02_ASSETS/UNSORTED",
+        "03_GUIDES",
+        "SOLIDS",
+        "USER_WORK"
+    ], "the exact current structure is created without replacing user folders");
     assert.equal(h.findFolderByPath("01_COMPS"), existingComps, "existing structural folders are reused");
     assert.equal(h.pathOf(master), "01_COMPS/MASTER/Final_Master");
     assert.equal(h.pathOf(text), "01_COMPS/PRECOMPS/TEXT/TXT_Title");
@@ -97,18 +128,51 @@ test("Build Structure processes a selected group folder while preserving its hie
     var groupFootage = h.addFootage("plate.mp4", group);
     var nested = h.addFolder("Nested", group);
     var nestedComp = h.addComp("Comp B", nested);
+    var deep = h.addFolder("Deep", nested);
+    var deepComp = h.addComp("Comp C", deep);
+    var nestedAudio = h.addFootage("voice.wav", deep);
     h.selectOnly([group]);
 
     h.click("Build Structure");
 
+    var firstRunCount = h.project.numItems;
     assert.equal(h.pathOf(group), "01_COMPS/MASTER/DELIVERABLE_GROUP");
     assert.equal(h.pathOf(groupComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Comp A");
     assert.equal(h.pathOf(nestedComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Nested/Comp B");
+    assert.equal(h.pathOf(deepComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Nested/Deep/Comp C");
     assert.equal(h.pathOf(groupFootage), "02_ASSETS/FOOTAGE/plate.mp4");
+    assert.equal(h.pathOf(nestedAudio), "02_ASSETS/AUDIO/voice.wav");
     assert.equal(group.label, 15);
     assert.equal(groupComp.label, 1);
     assert.equal(nestedComp.label, 1);
+    assert.equal(deepComp.label, 1);
     assert.deepEqual(h.project.selection, [group]);
+
+    h.click("Build Structure");
+
+    assert.equal(h.project.numItems, firstRunCount, "repeat runs reuse the same structure and documentation comps");
+    assert.equal(h.pathOf(group), "01_COMPS/MASTER/DELIVERABLE_GROUP");
+    assert.equal(h.pathOf(deepComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Nested/Deep/Comp C");
+    assert.equal(h.pathOf(nestedAudio), "02_ASSETS/AUDIO/voice.wav");
+    assert.deepEqual(h.project.selection, [group]);
+    assert.deepEqual(h.undoEvents, [
+        { type: "begin", name: "Build Structure" },
+        { type: "end" },
+        { type: "begin", name: "Build Structure" },
+        { type: "end" }
+    ]);
+});
+
+test("Build Structure never relocates a selected folder that belongs to its own structure", function () {
+    var h = createHarness();
+    var comps = h.addFolder("01_COMPS");
+    h.selectOnly([comps]);
+
+    h.click("Build Structure");
+
+    assert.equal(h.pathOf(comps), "01_COMPS");
+    assert.equal(h.findFolderByPath("01_COMPS/MASTER/01_COMPS"), null);
+    assert.deepEqual(h.project.selection, [comps]);
 });
 
 test("Colour Code Layers applies case-insensitive prefix precedence and type fallbacks", function () {
@@ -232,6 +296,30 @@ test("Reduce Project and Collect Files look up and invoke native commands", func
         "Collect Files"
     ]);
     assert.deepEqual(h.executedCommands, [42, 88]);
+    assert.deepEqual(h.undoEvents, [
+        { type: "begin", name: "Reduce Project" },
+        { type: "end" }
+    ]);
+});
+
+test("unavailable native commands preserve their current alerts and undo behavior", function () {
+    var h = createHarness();
+    var comp = h.addComp("Master");
+    h.selectOnly([comp]);
+
+    h.click("Reduce Project");
+    h.click("Collect files");
+
+    assert.deepEqual(h.commandLookups, [
+        "Reduce Project",
+        "Collect Files...",
+        "Collect Files"
+    ]);
+    assert.deepEqual(h.executedCommands, []);
+    assert.deepEqual(h.alerts, [
+        "Cannot find 'Reduce Project' command.",
+        "Cannot find 'Collect Files...' command."
+    ]);
     assert.deepEqual(h.undoEvents, [
         { type: "begin", name: "Reduce Project" },
         { type: "end" }
