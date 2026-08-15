@@ -13,6 +13,8 @@ Built for a small motion design team spread across multiple locations sharing Af
 | Colour Code Current Comp | Current comp only | Applies a label colour to every layer, by name prefix or layer type |
 | Reduce Project | Whole project | Confirms the MASTER or manually selected comp set, then runs After Effects' native reduction command |
 
+The panel keeps exactly these four workflow actions in this order. **Build Structure** is the only primary action and uses GuideKeeper's `#00FFA3` accent when the host can render it reliably; the other three actions retain standard native grey controls, and unsupported hosts fall back to native button rendering. Every action has a plain-text hover tooltip. The small **?** utility control opens a compact, non-destructive help palette describing the current Build/Rebuild, cleanup, colour, reduction, and selected-folder workflows.
+
 Everything below is the convention the script ships with by default. None of it is hardcoded logic, the prefix lists and colour mapping sit in one place near the top of the script, plain constants you edit to match your own team's naming.
 
 ## Folder structure
@@ -203,6 +205,7 @@ This standard contributor and CI path uses only Node's built-in test runner and 
 **This check is non-blocking maintainer/release validation only. It is not a contributor prerequisite and is not required in CI.** When After Effects is available:
 
 - Open the panel as both a floating window and a docked panel; resize it across the row/column breakpoint.
+- Check that only **Build Structure** receives the `#00FFA3` primary treatment, then open, close, and reopen **?** Help without changing the project.
 - Run **Build Structure** on comps and a nested group folder; inspect the actual moves, preserved hierarchy, Project-panel labels, and selection restoration.
 - Import representative OVERLORD, layered Illustrator, and layered Photoshop groups; confirm Build/Rebuild and root cleanup keep each hierarchy and source/Layers pair intact under `02_ASSETS/IMAGES`.
 - Run Build Structure again and exercise **Rebuild Structure**, **Clean Up Root**, and **Cancel**; confirm Cancel is mutation-free and cleanup touches only loose root items.

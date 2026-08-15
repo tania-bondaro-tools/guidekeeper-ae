@@ -10,6 +10,7 @@ function createHarness(options) {
     var alerts = [];
     var buttons = {};
     var panelButtonLabels = [];
+    var panelUtilityLabels = [];
     var undoEvents = [];
     var commandLookups = [];
     var executedCommands = [];
@@ -19,6 +20,7 @@ function createHarness(options) {
     var confirmations = [];
     var dialogChoices = [];
     var dialogs = [];
+    var windows = [];
 
     function SolidSource(color, width, height) {
         this.color = color || [0, 0, 0];
@@ -345,24 +347,75 @@ function createHarness(options) {
     }
     FixedDate.prototype = Date.prototype;
 
+    function makeGraphics() {
+        if (options.scriptUIGraphics === false) return null;
+        return {
+            BrushType: { SOLID_COLOR: "solid-color" },
+            PenType: { SOLID_COLOR: "solid-color" },
+            font: { name: "Mock UI Font" },
+            foregroundColor: null,
+            operations: [],
+            newBrush: function (type, color) {
+                return { kind: "brush", type: type, color: color.slice() };
+            },
+            newPen: function (type, color, width) {
+                return { kind: "pen", type: type, color: color.slice(), width: width };
+            },
+            drawOSControl: function () {
+                this.operations.push({ type: "drawOSControl" });
+            },
+            rectPath: function (x, y, width, height) {
+                this.operations.push({
+                    type: "rectPath",
+                    x: x,
+                    y: y,
+                    width: width,
+                    height: height
+                });
+            },
+            fillPath: function (brush) {
+                this.operations.push({ type: "fillPath", brush: brush });
+            },
+            measureString: function (text) {
+                return [text.length * 7, 14];
+            },
+            drawString: function (text, pen, x, y) {
+                this.operations.push({
+                    type: "drawString",
+                    text: text,
+                    pen: pen,
+                    x: x,
+                    y: y
+                });
+            }
+        };
+    }
+
     function Window(kind, title) {
         this.kind = kind;
         this.title = title;
         this.size = [800, 200];
         this._children = [];
         this._closed = false;
+        this._showCount = 0;
         this.layout = {
             layout: function () {},
             resize: function () {}
         };
+        windows.push(this);
     }
 
     function addControl(owner, kind, label) {
         var control = {
             kind: kind,
             label: label,
+            text: label,
             onClick: null,
+            onDraw: null,
             size: null,
+            enabled: true,
+            graphics: makeGraphics(),
+            parent: owner,
             _children: []
         };
         control.add = function (childKind, bounds, childLabel) {
@@ -370,8 +423,19 @@ function createHarness(options) {
         };
         owner._children.push(control);
         if (kind === "button") buttons[label] = control;
-        if (kind === "button" && owner.kind === "palette") panelButtonLabels.push(label);
+        if (kind === "button" && label === "?") panelUtilityLabels.push(label);
+        if (kind === "button"
+                && label !== "?"
+                && owningWindow(control) === windows[0]) {
+            panelButtonLabels.push(label);
+        }
         return control;
+    }
+
+    function owningWindow(control) {
+        var owner = control;
+        while (owner && owner.parent) owner = owner.parent;
+        return owner;
     }
 
     function findControl(owner, kind, label) {
@@ -390,8 +454,10 @@ function createHarness(options) {
     Window.prototype.center = function () {};
     Window.prototype.close = function () {
         this._closed = true;
+        if (typeof this.onClose === "function") this.onClose();
     };
     Window.prototype.show = function () {
+        this._showCount++;
         if (this.kind !== "dialog") return;
         var choice = dialogChoices.length ? dialogChoices.shift() : "Cancel";
         dialogs.push({
@@ -437,6 +503,16 @@ function createHarness(options) {
         buttons[label].onClick();
     }
 
+    function controlText(owner) {
+        var text = [];
+        for (var i = 0; i < owner._children.length; i++) {
+            var child = owner._children[i];
+            if (child.kind === "statictext") text.push(child.label);
+            text = text.concat(controlText(child));
+        }
+        return text;
+    }
+
     function pathOf(item) {
         var parts = [item.name];
         var parent = item.parentFolder;
@@ -473,6 +549,7 @@ function createHarness(options) {
         project: project,
         alerts: alerts,
         panelButtonLabels: panelButtonLabels,
+        panelUtilityLabels: panelUtilityLabels,
         undoEvents: undoEvents,
         commandLookups: commandLookups,
         executedCommands: executedCommands,
@@ -480,6 +557,8 @@ function createHarness(options) {
         commandIds: commandIds,
         confirmations: confirmations,
         dialogs: dialogs,
+        windows: windows,
+        panel: windows[0],
         classes: {
             CompItem: CompItem,
             FolderItem: FolderItem,
@@ -511,6 +590,13 @@ function createHarness(options) {
             confirmationChoices.push(accepted);
         },
         click: click,
+        getButton: function (label) {
+            return buttons[label] || null;
+        },
+        findControl: function (kind, label) {
+            return findControl(windows[0], kind, label);
+        },
+        windowText: controlText,
         pathOf: pathOf,
         findByName: findByName,
         findFolderByPath: findFolderByPath

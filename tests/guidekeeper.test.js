@@ -45,10 +45,135 @@ test("panel exposes exactly four workflow actions in order", function () {
         "Colour Code Current Comp",
         "Reduce Project"
     ]);
+    assert.deepEqual(h.panelUtilityLabels, ["?"]);
     assert.throws(function () {
         h.click("Collect files");
     }, /Button not found: Collect files/);
 });
+
+test("only Build Structure receives the exact accent treatment with a native fallback", function () {
+    var h = createHarness();
+    var build = h.getButton("Build Structure");
+    var secondaries = [
+        h.getButton("Clean Up Root"),
+        h.getButton("Colour Code Current Comp"),
+        h.getButton("Reduce Project")
+    ];
+
+    assert.equal(typeof build.onDraw, "function");
+    secondaries.forEach(function (button) {
+        assert.equal(button.onDraw, null);
+    });
+
+    build.onDraw();
+    assert.deepEqual(build.graphics.operations[0], { type: "drawOSControl" });
+    var fill = build.graphics.operations.filter(function (operation) {
+        return operation.type === "fillPath";
+    })[0];
+    assert.deepEqual(Array.from(fill.brush.color), [0, 1, 163 / 255, 1]);
+    var text = build.graphics.operations.filter(function (operation) {
+        return operation.type === "drawString";
+    })[0];
+    assert.equal(text.text, "Build Structure");
+    assert.deepEqual(Array.from(text.pen.color), [0, 0, 0, 1]);
+
+    build.enabled = false;
+    build.graphics.operations.length = 0;
+    build.onDraw();
+    assert.deepEqual(build.graphics.operations, [{ type: "drawOSControl" }]);
+
+    var fallback = createHarness({ scriptUIGraphics: false });
+    assert.equal(fallback.getButton("Build Structure").onDraw, null);
+    assert.equal(fallback.getButton("Build Structure").label, "Build Structure");
+});
+
+test("workflow actions and help utility expose concise plain-text helpTips", function () {
+    var h = createHarness();
+
+    assert.deepEqual([
+        h.getButton("Build Structure").helpTip,
+        h.getButton("Clean Up Root").helpTip,
+        h.getButton("Colour Code Current Comp").helpTip,
+        h.getButton("Reduce Project").helpTip,
+        h.getButton("?").helpTip
+    ], [
+        "Creates or rebuilds the GuideKeeper structure and organises selected composition groups.",
+        "Sorts newly imported root-level items into an existing GuideKeeper structure.",
+        "Applies GuideKeeper label colours to layers in the current composition.",
+        "Keeps only assets used by MASTER compositions, or by manually selected compositions.",
+        "Open GuideKeeper Help."
+    ]);
+});
+
+test("help explains current workflows without mutating the project and can be reopened", function () {
+    var h = createHarness();
+    var beforeItems = h.project._items.slice();
+
+    h.click("?");
+
+    var firstHelp = h.windows[1];
+    var helpText = h.windowText(firstHelp).join("\n");
+    assert.equal(firstHelp.title, "GuideKeeper Help");
+    assert.match(helpText, /Build Structure/);
+    assert.match(helpText, /Clean Up Root/);
+    assert.match(helpText, /Colour Code Current Comp/);
+    assert.match(helpText, /Reduce Project/);
+    assert.match(helpText, /Rebuild Structure choice/);
+    assert.match(helpText, /01_COMPS\/MASTER/);
+    assert.match(helpText, /OVERLORD/);
+    assert.match(helpText, /matched AI\/PSD imports/);
+    assert.equal(
+        helpText.match(/Sort Selected Folder/g),
+        null,
+        "obsolete standalone action is not advertised"
+    );
+    assert.deepEqual(h.project._items, beforeItems);
+    assert.deepEqual(h.undoEvents, []);
+
+    var helpHeading = findControlInWindow(firstHelp, "statictext", "GUIDEKEEPER HELP");
+    assert.deepEqual(
+        Array.from(helpHeading.graphics.foregroundColor.color),
+        [0, 1, 163 / 255, 1]
+    );
+
+    h.click("?");
+    assert.equal(h.windows.length, 2, "an open help palette is reused");
+    assert.equal(firstHelp._showCount, 2);
+    firstHelp.close();
+    h.click("?");
+    assert.equal(h.windows.length, 3, "closing help allows a fresh palette");
+    assert.equal(h.windows[2].title, "GuideKeeper Help");
+    assert.deepEqual(h.project._items, beforeItems);
+    assert.deepEqual(h.undoEvents, []);
+});
+
+test("action buttons switch row and column layout without moving help chrome", function () {
+    var h = createHarness();
+    var actions = h.getButton("Build Structure").parent;
+
+    assert.equal(h.panel.orientation, "column");
+    assert.equal(actions.orientation, "row");
+
+    h.panel.size = [600, 500];
+    h.panel.onResize();
+    assert.equal(h.panel.orientation, "column");
+    assert.equal(actions.orientation, "column");
+
+    h.panel.size = [700, 200];
+    h.panel.onResize();
+    assert.equal(actions.orientation, "row");
+    assert.equal(h.getButton("?").parent.orientation, "row");
+});
+
+function findControlInWindow(owner, kind, label) {
+    for (var i = 0; i < owner._children.length; i++) {
+        var child = owner._children[i];
+        if (child.kind === kind && child.label === label) return child;
+        var nested = findControlInWindow(child, kind, label);
+        if (nested) return nested;
+    }
+    return null;
+}
 
 function assertWorkflowFolderLabels(h) {
     WORKFLOW_FOLDER_PATHS.forEach(function (folderPath) {
