@@ -4,7 +4,8 @@ var fs = require("node:fs");
 var path = require("node:path");
 var vm = require("node:vm");
 
-function createHarness() {
+function createHarness(options) {
+    options = options || {};
     var nextId = 1;
     var alerts = [];
     var buttons = {};
@@ -19,7 +20,20 @@ function createHarness() {
     var dialogChoices = [];
     var dialogs = [];
 
-    function SolidSource() {}
+    function SolidSource(color, width, height) {
+        this.color = color || [0, 0, 0];
+        this.width = width || 0;
+        this.height = height || 0;
+    }
+
+    function TextDocument(text) {
+        this.text = text || "";
+        this.font = "";
+        this.fontSize = 0;
+        this.applyFill = true;
+        this.fillColor = [1, 1, 1];
+        this.applyStroke = false;
+    }
 
     function ProjectItem(project, name, parentFolder) {
         this.project = project;
@@ -51,6 +65,7 @@ function createHarness() {
     });
 
     ProjectItem.prototype.remove = function () {
+        if (this.failRemove) throw new Error("Cannot remove " + this.name);
         var index = this.project._items.indexOf(this);
         if (index === -1) throw new Error("Item is not in the project");
         if (this.numItems) throw new Error("Folder is not empty");
@@ -84,6 +99,8 @@ function createHarness() {
         this.name = name || "";
         this.source = source || null;
         this._label = 0;
+        this._textDocument = null;
+        this.position = [0, 0];
     }
 
     Object.defineProperty(Layer.prototype, "label", {
@@ -95,6 +112,54 @@ function createHarness() {
             this._label = value;
         }
     });
+
+    Object.defineProperty(Layer.prototype, "text", {
+        get: function () {
+            return this._textDocument ? this._textDocument.text : "";
+        },
+        set: function (value) {
+            if (!this._textDocument) this._textDocument = new TextDocument(value);
+            this._textDocument.text = value;
+        }
+    });
+
+    Layer.prototype.property = function (name) {
+        var layer = this;
+        if (name === "ADBE Text Properties") {
+            return {
+                property: function (propertyName) {
+                    if (propertyName !== "ADBE Text Document") return null;
+                    return {
+                        get value() {
+                            return layer._textDocument;
+                        },
+                        setValue: function (value) {
+                            if (layer.failSetText || (layer.comp && layer.comp.project.failSetText)) {
+                                throw new Error("Cannot set source text");
+                            }
+                            layer._textDocument = value;
+                        }
+                    };
+                }
+            };
+        }
+        if (name === "ADBE Transform Group") {
+            return {
+                property: function (propertyName) {
+                    if (propertyName !== "ADBE Position") return null;
+                    return {
+                        setValue: function (value) {
+                            if (layer.failPosition || (layer.comp && layer.comp.project.failPosition)) {
+                                throw new Error("Cannot set layer position");
+                            }
+                            layer.position = value.slice();
+                        }
+                    };
+                }
+            };
+        }
+        return null;
+    };
 
     function LightLayer(name, source) {
         Layer.call(this, name, source);
@@ -115,14 +180,32 @@ function createHarness() {
         this.height = settings.height || 1080;
         this.duration = settings.duration || 10;
         this.frameRate = settings.frameRate || 25;
+        this.bgColor = [0, 0, 0];
         this._layers = [];
 
         var comp = this;
         this.layers = {
             addText: function (text) {
+                if (project.failAddText) throw new Error("Cannot add text layer");
                 var layer = new Layer("Text");
-                layer.text = text;
-                comp._layers.push(layer);
+                layer.comp = comp;
+                layer._textDocument = new TextDocument(text);
+                comp._layers.unshift(layer);
+                return layer;
+            },
+            addSolid: function (color, name, width, height, pixelAspect, duration) {
+                if (project.failAddSolid) throw new Error("Cannot add solid layer");
+                var source = project._addFootage(name, project.rootFolder, {
+                    solid: true,
+                    color: color,
+                    width: width,
+                    height: height
+                });
+                source.duration = duration;
+                source.pixelAspect = pixelAspect;
+                var layer = new Layer(name, source);
+                layer.comp = comp;
+                comp._layers.unshift(layer);
                 return layer;
             }
         };
@@ -214,7 +297,7 @@ function createHarness() {
     Project.prototype._addFootage = function (name, parentFolder, options) {
         options = options || {};
         var source = options.solid
-            ? new SolidSource()
+            ? new SolidSource(options.color, options.width, options.height)
             : { file: options.noFile ? null : { name: options.fileName || name } };
         var footage = new FootageItem(this, name, parentFolder || this.rootFolder, source);
         this._items.push(footage);
@@ -256,6 +339,11 @@ function createHarness() {
     };
 
     function Panel() {}
+
+    function FixedDate() {
+        return new Date(options.now);
+    }
+    FixedDate.prototype = Date.prototype;
 
     function Window(kind, title) {
         this.kind = kind;
@@ -336,6 +424,7 @@ function createHarness() {
         LightLayer: LightLayer,
         CameraLayer: CameraLayer
     });
+    if (options.now) context.Date = FixedDate;
 
     var scriptPath = path.join(__dirname, "..", "GuideKeeper_AE.jsx");
     var source = fs.readFileSync(scriptPath, "utf8");
@@ -397,7 +486,8 @@ function createHarness() {
             FootageItem: FootageItem,
             SolidSource: SolidSource,
             LightLayer: LightLayer,
-            CameraLayer: CameraLayer
+            CameraLayer: CameraLayer,
+            TextDocument: TextDocument
         },
         addFolder: function (name, parentFolder) {
             return project._addFolder(name, parentFolder || project.rootFolder, false);

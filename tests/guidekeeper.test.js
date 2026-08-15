@@ -26,6 +26,7 @@ var WORKFLOW_FOLDER_PATHS = [
     "01_COMPS/PRECOMPS/UNSORTED",
     "02_ASSETS",
     "02_ASSETS/AUDIO",
+    "02_ASSETS/FONTS",
     "02_ASSETS/FOOTAGE",
     "02_ASSETS/IMAGES",
     "02_ASSETS/LOGOS",
@@ -53,6 +54,20 @@ function assertWorkflowFolderLabels(h) {
     WORKFLOW_FOLDER_PATHS.forEach(function (folderPath) {
         assert.equal(h.findFolderByPath(folderPath).label, 15, folderPath + " is Sandstone");
     });
+}
+
+function normalizeLineEndings(text) {
+    return text.replace(/\r\n?/g, "\n");
+}
+
+function textDocument(layer) {
+    return layer.property("ADBE Text Properties")
+        .property("ADBE Text Document")
+        .value;
+}
+
+function assertPosition(layer, expected) {
+    assert.deepEqual(Array.from(layer.position), expected);
 }
 
 function processableRootItems(h) {
@@ -115,6 +130,7 @@ test("Build Structure classifies root items, preserves nested items, labels Proj
         "01_COMPS/PRECOMPS/UNSORTED",
         "02_ASSETS",
         "02_ASSETS/AUDIO",
+        "02_ASSETS/FONTS",
         "02_ASSETS/FOOTAGE",
         "02_ASSETS/IMAGES",
         "02_ASSETS/LOGOS",
@@ -154,19 +170,111 @@ test("Build Structure classifies root items, preserves nested items, labels Proj
     ]);
 });
 
-test("Build Structure reuses folders and documentation comps without overwriting edits", function () {
-    var h = createHarness();
+test("Build Structure generates production documentation comps with exact native styling and content", function () {
+    var h = createHarness({ now: "2026-08-15T12:00:00" });
+    h.app.version = "25.4.1";
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+
+    h.click("Build Structure");
+
+    var readme = h.findByName("!_README")[0];
+    var workflowGuide = h.findByName("!_WORKFLOW_GUIDE")[0];
+    [readme, workflowGuide].forEach(function (comp) {
+        assert.equal(comp.parentFolder, h.project.rootFolder);
+        assert.equal(comp.width, 1250);
+        assert.equal(comp.height, 2160);
+        assert.deepEqual(Array.from(comp.bgColor), [0, 0, 0]);
+        assert.equal(comp.numLayers, 3);
+        assert.equal(comp.layer(1).name, "HEADER");
+        assert.equal(comp.layer(2).name, "BODY");
+        assert.equal(comp.layer(3).source.mainSource instanceof h.classes.SolidSource, true);
+        assert.deepEqual(Array.from(comp.layer(3).source.mainSource.color), [0, 0, 0]);
+        assert.equal(comp.layer(3).source.mainSource.width, 1250);
+        assert.equal(comp.layer(3).source.mainSource.height, 2160);
+        assert.equal(h.pathOf(comp.layer(3).source), "SOLIDS/" + comp.name + " BACKGROUND");
+    });
+
+    var readmeHeader = textDocument(readme.layer(1));
+    assert.equal(readmeHeader.text, "!_README");
+    assert.equal(readmeHeader.font, "Arial-BoldMT");
+    assert.equal(readmeHeader.fontSize, 48);
+    assert.deepEqual(Array.from(readmeHeader.fillColor), [0, 1, 163 / 255]);
+    assert.equal(readmeHeader.applyFill, true);
+    assert.equal(readmeHeader.applyStroke, false);
+    assertPosition(readme.layer(1), [60, 100]);
+
+    var readmeBody = textDocument(readme.layer(2));
+    var readmeText = normalizeLineEndings(readmeBody.text);
+    assert.equal(readmeBody.font, "ArialMT");
+    assert.equal(readmeBody.fontSize, 24);
+    assert.deepEqual(Array.from(readmeBody.fillColor), [1, 1, 1]);
+    assertPosition(readme.layer(2), [60, 180]);
+    assert.equal(readmeText, readmeText.toUpperCase());
+    assert.match(readmeText, /^PROJECT 1234567_PRODUCTNAME_CAMPAIGN_DATE$/m);
+    assert.match(readmeText, /^CREATED BY MOTION DESIGNER NAME \/ AGENCY$/m);
+    assert.match(readmeText, /^DATE 2026-08-15$/m);
+    assert.match(readmeText, /^AE VERSION 25\.4\.1$/m);
+    assert.match(readmeText, /^FONTS ALL FONTS PROVIDED IN 02_ASSETS\/FONTS$/m);
+    assert.match(readmeText, /OLIVER - TEXT ROLLOUT V1\.0 \(SCRIPTUI PANEL\)/);
+    assert.match(readmeText, /SEE !_WORKFLOW_GUIDE COMP FOR NAMING RULES AND FULL INSTRUCTIONS\./);
+
+    var guideHeader = textDocument(workflowGuide.layer(1));
+    assert.equal(guideHeader.text, "!_WORKFLOW_GUIDE — HOW TO USE THIS TEMPLATE");
+    assert.equal(guideHeader.font, "Arial-BoldMT");
+    assert.equal(guideHeader.fontSize, 48);
+    assert.deepEqual(Array.from(guideHeader.fillColor), [0, 1, 163 / 255]);
+    assertPosition(workflowGuide.layer(1), [60, 100]);
+
+    var guideBody = textDocument(workflowGuide.layer(2));
+    var guideText = normalizeLineEndings(guideBody.text);
+    assert.equal(guideBody.font, "ArialMT");
+    assert.equal(guideBody.fontSize, 15);
+    assert.deepEqual(Array.from(guideBody.fillColor), [1, 1, 1]);
+    assertPosition(workflowGuide.layer(2), [60, 200]);
+    assert.equal(guideText, guideText.toUpperCase());
+    assert.match(guideText, /^PROJECT TEMPLATE — REFERENCE V1\.0$/m);
+    assert.match(guideText, /ALL TEXT LAYERS ARE IN PRECOMPS INSIDE 01_COMPS\/PRECOMPS\/TEXT\//);
+    assert.match(guideText, /METHOD 1 — CSV ROLLOUT PANEL/);
+    assert.match(guideText, /METHOD 2 — ESSENTIAL PROPERTIES/);
+    assert.match(guideText, /ADDING A NEW TEXT FIELD/);
+    assert.match(guideText, /ADDING A NEW LANGUAGE/);
+    assert.match(guideText, /NAMING CONVENTION/);
+    assert.match(guideText, /VFX_ = EFFECTS\/TRANSITIONS \(LABEL: FUCHSIA\)/);
+    assert.match(guideText, /MSK_ = MASKS\/MATTES \(LABEL: BROWN\)/);
+    assert.match(guideText, /01_COMPS\/LANGUAGES\/ = MANUAL LANGUAGE VERSIONS/);
+    assert.match(guideText, /02_ASSETS\/ = FOOTAGE, IMAGES, AUDIO, FONTS, PACKSHOTS, LOGOS, UNSORTED/);
+    assert.match(guideText, /SOLIDS\/ = NATIVE SOLID SOURCES/);
+    assert.match(guideText, /DATA\/TRANSLATIONS\.CSV = ON DISK, NEXT TO THE \.AEP/);
+    assert.match(guideText, /QUESTIONS: DAVIDLEBRIS@INSIDEIDEAS\.AGENCY/);
+    assert.equal(h.findFolderByPath("02_ASSETS/FONTS").label, 15);
+});
+
+test("Build and Rebuild reuse documentation comps at root without overwriting edits", function () {
+    var h = createHarness({ now: "2026-08-15T12:00:00" });
+    var holding = h.addFolder("USER_DOCS");
+    var readme = h.addComp("!_README", holding, {
+        width: 640,
+        height: 480,
+        duration: 2,
+        frameRate: 24
+    });
+    var workflowGuide = h.addComp("!_WORKFLOW_GUIDE", holding);
+    var readmeLayer = h.addLayer(readme, { name: "Producer notes" });
+    var workflowLayer = h.addLayer(workflowGuide, { name: "Custom workflow" });
     var master = h.addComp("Master");
     h.selectOnly([master]);
 
     h.click("Build Structure");
 
     var firstCount = h.project.numItems;
-    var readme = h.findByName("!_README")[0];
-    var workflowGuide = h.findByName("!_WORKFLOW_GUIDE")[0];
     var masterFolder = h.findFolderByPath("01_COMPS/MASTER");
-    readme._layers[0].text = "Producer notes";
-    workflowGuide._layers[0].text = "Custom workflow";
+    assert.equal(h.pathOf(readme), "!_README");
+    assert.equal(h.pathOf(workflowGuide), "!_WORKFLOW_GUIDE");
+    assert.equal(readme.width, 640);
+    assert.equal(readme.height, 480);
+    assert.deepEqual(readme._layers, [readmeLayer]);
+    assert.deepEqual(workflowGuide._layers, [workflowLayer]);
 
     h.chooseDialog("Rebuild Structure");
     h.click("Build Structure");
@@ -175,8 +283,10 @@ test("Build Structure reuses folders and documentation comps without overwriting
     assert.deepEqual(h.findByName("!_README"), [readme]);
     assert.deepEqual(h.findByName("!_WORKFLOW_GUIDE"), [workflowGuide]);
     assert.equal(h.findFolderByPath("01_COMPS/MASTER"), masterFolder);
-    assert.equal(readme._layers[0].text, "Producer notes");
-    assert.equal(workflowGuide._layers[0].text, "Custom workflow");
+    assert.deepEqual(readme._layers, [readmeLayer]);
+    assert.deepEqual(workflowGuide._layers, [workflowLayer]);
+    assert.equal(h.pathOf(readme), "!_README");
+    assert.equal(h.pathOf(workflowGuide), "!_WORKFLOW_GUIDE");
 });
 
 test("Build, Rebuild, and Clean Up Root apply only workflow and recursive MASTER labels", function () {
@@ -649,6 +759,38 @@ test("undo groups close when mutating actions report an error", async function (
 
         assert.match(h.alerts[0], /^Error: Error: Cannot create folder$/);
         assert.deepEqual(h.undoEvents, [
+            { type: "begin", name: "Build Structure" },
+            { type: "end" }
+        ]);
+    });
+
+    await t.test("documentation comp initialization", function () {
+        var h = createHarness({ now: "2026-08-15T12:00:00" });
+        var comp = h.addComp("Master");
+        h.selectOnly([comp]);
+        h.project.failAddText = true;
+
+        h.click("Build Structure");
+
+        assert.match(
+            h.alerts[0],
+            /^Error: Error: Could not create documentation comp '!_README': Error: Cannot add text layer$/
+        );
+        assert.deepEqual(h.findByName("!_README"), []);
+        assert.deepEqual(h.findByName("!_README BACKGROUND"), []);
+        assert.deepEqual(h.findByName("!_WORKFLOW_GUIDE"), []);
+        assert.deepEqual(h.undoEvents, [
+            { type: "begin", name: "Build Structure" },
+            { type: "end" }
+        ]);
+
+        h.project.failAddText = false;
+        h.chooseDialog("Rebuild Structure");
+        h.click("Build Structure");
+
+        assert.equal(h.findByName("!_README").length, 1);
+        assert.equal(h.findByName("!_WORKFLOW_GUIDE").length, 1);
+        assert.deepEqual(h.undoEvents.slice(-2), [
             { type: "begin", name: "Build Structure" },
             { type: "end" }
         ]);
