@@ -84,6 +84,26 @@ test("extracts selected-folder footage while preserving comp groups", () => {
     assert.equal(group.removed, false);
 });
 
+test("routes an explicitly selected nested comp directly to MASTER", () => {
+    const harness = new Harness();
+    const group = harness.addFolder("Campaign");
+    const nested = harness.addFolder("Nested", group);
+    const selectedComp = harness.addComp("Selected Nested", nested);
+    const groupedComp = harness.addComp("Grouped Nested", nested);
+    harness.select(group, selectedComp);
+
+    harness.click("Build Structure");
+
+    const master = harness.folderPath("01_COMPS", "MASTER");
+    assert.equal(group.parentFolder, master);
+    assert.equal(selectedComp.parentFolder, master);
+    assert.equal(selectedComp.label, 1);
+    assert.equal(nested.parentFolder, group);
+    assert.equal(groupedComp.parentFolder, nested);
+    assert.equal(groupedComp.label, 1);
+    assert.deepEqual(harness.project.selection, [group, selectedComp]);
+});
+
 test("leaves unselected root folders and all of their contents in place", () => {
     const harness = new Harness();
     const selected = harness.addComp("Main");
@@ -131,7 +151,7 @@ test("routes every root comp and footage category to its destination", () => {
     assert.ok(harness.folderPath("01_COMPS", "PRECOMPS", "TRANSITIONS"));
 });
 
-test("reuses documentation comps at root without overwriting content", () => {
+test("reuses documentation comps in place without overwriting content", () => {
     const harness = new Harness();
     const selected = harness.addComp("Main", null, {
         width: 3840,
@@ -146,11 +166,14 @@ test("reuses documentation comps at root without overwriting content", () => {
     harness.select(selected);
 
     harness.click("Build Structure");
+    harness.click("Build Structure");
 
     const workflow = harness.itemsNamed("!_WORKFLOW_GUIDE")[0];
-    assert.equal(existingReadme.parentFolder, harness.project.rootFolder);
+    assert.equal(existingReadme.parentFolder, userFolder);
     assert.equal(existingReadme.numLayers, 1);
     assert.equal(existingReadme.layer(1), existingLayer);
+    assert.equal(harness.itemsNamed("!_README").length, 1);
+    assert.equal(harness.itemsNamed("!_WORKFLOW_GUIDE").length, 1);
     assert.equal(workflow.parentFolder, harness.project.rootFolder);
     assert.equal(workflow.numLayers, 1);
     assert.equal(workflow.width, 3840);

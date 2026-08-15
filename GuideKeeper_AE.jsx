@@ -312,24 +312,12 @@
         return result;
     }
 
-    function effectiveSelectedComps(selection, selectedFolders) {
+    function effectiveSelectedComps(selection) {
         var result = [];
-        var insideSelectedFolder;
         var i;
-        var j;
 
         for (i = 0; i < selection.length; i += 1) {
-            if (!(selection[i] instanceof CompItem)) {
-                continue;
-            }
-            insideSelectedFolder = false;
-            for (j = 0; j < selectedFolders.length; j += 1) {
-                if (isInsideFolder(selection[i], selectedFolders[j])) {
-                    insideSelectedFolder = true;
-                    break;
-                }
-            }
-            if (!insideSelectedFolder) {
+            if (selection[i] instanceof CompItem) {
                 result.push(selection[i]);
             }
         }
@@ -389,7 +377,7 @@
         return destinations.assetUnsorted;
     }
 
-    function processSelectedFolder(folder, destinations) {
+    function processSelectedFolder(folder, destinations, selectedComps) {
         var children = snapshotFolderItems(folder);
         var child;
         var extracted = false;
@@ -402,9 +390,11 @@
                 child.parentFolder = destinationForFootage(child, destinations);
                 extracted = true;
             } else if (child instanceof CompItem) {
-                child.label = LABEL_RED;
+                if (!containsItem(selectedComps, child)) {
+                    child.label = LABEL_RED;
+                }
             } else if (child instanceof FolderItem) {
-                childExtracted = processSelectedFolder(child, destinations);
+                childExtracted = processSelectedFolder(child, destinations, selectedComps);
                 extracted = extracted || childExtracted;
                 if (childExtracted && child.numItems === 0) {
                     child.remove();
@@ -462,9 +452,9 @@
                 referenceComp ? referenceComp.frameRate : 25
             );
             comp.layers.addText(documentationText(name));
+            comp.parentFolder = app.project.rootFolder;
         }
 
-        comp.parentFolder = app.project.rootFolder;
         return comp;
     }
 
@@ -526,14 +516,14 @@
         referenceComp = firstResolvedComp(originalSelection);
         originalRootItems = snapshotFolderItems(app.project.rootFolder);
         selectedFolders = effectiveSelectedFolders(originalSelection);
-        selectedComps = effectiveSelectedComps(originalSelection, selectedFolders);
+        selectedComps = effectiveSelectedComps(originalSelection);
 
         app.beginUndoGroup("GuideKeeper: Build Structure");
         try {
             destinations = createStructure();
 
             for (i = 0; i < selectedFolders.length; i += 1) {
-                processSelectedFolder(selectedFolders[i], destinations);
+                processSelectedFolder(selectedFolders[i], destinations, selectedComps);
                 selectedFolders[i].parentFolder = destinations.master;
             }
 
@@ -546,7 +536,8 @@
                 item = originalRootItems[i];
                 if (item instanceof CompItem &&
                         item.name !== DOCUMENT_README &&
-                        item.name !== DOCUMENT_WORKFLOW) {
+                        item.name !== DOCUMENT_WORKFLOW &&
+                        !containsItem(selectedComps, item)) {
                     item.parentFolder = destinationForComp(item, selectedComps, destinations);
                 } else if (item instanceof FootageItem) {
                     item.parentFolder = destinationForFootage(item, destinations);

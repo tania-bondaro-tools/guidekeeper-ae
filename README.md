@@ -51,13 +51,13 @@ Build Structure creates or reuses this exact hierarchy:
 SOLIDS/
 ```
 
-`!_README` and `!_WORKFLOW_GUIDE` are compositions at the Project root, not folders. New documentation comps use the first composition resolved from the selection for size, pixel aspect, duration, and frame rate. Each receives one plain text layer. If an exact-name documentation comp already exists anywhere, GuideKeeper moves it to the root but never overwrites its content.
+`!_README` and `!_WORKFLOW_GUIDE` are compositions, not folders. Newly created documentation comps are placed at the Project root and use the first composition resolved from the selection for size, pixel aspect, duration, and frame rate. Each receives one plain text layer. If an exact-name documentation comp already exists anywhere, GuideKeeper reuses it without changing its parent or content and does not create a duplicate.
 
 There is deliberately no Project-panel `FONTS` folder. Fonts are installed system resources and belong in the handoff's disk-level documentation, not as importable After Effects project items.
 
 ### Selection behavior
 
-- A directly selected composition moves to `01_COMPS/MASTER` and receives label 1 (Red).
+- Every directly selected composition moves to `01_COMPS/MASTER` and receives label 1 (Red), even when a selected ancestor folder also contains it.
 - A selected folder keeps its composition and subfolder grouping intact, then moves into `MASTER`.
 - Existing GuideKeeper structure folders are rejected as selections so a later run cannot move or nest the canonical tree into itself.
 - Footage is extracted recursively from selected folders and classified into `02_ASSETS` or `SOLIDS`.
@@ -69,7 +69,7 @@ There is deliberately no Project-panel `FONTS` folder. Fonts are installed syste
 
 The general sorting pass acts only on compositions and footage that were at the true Project root when the workflow began.
 
-Unselected user folders at the root are never moved, flattened, or deleted. Their contents are not inspected or sorted. Items already inside any unselected folder remain untouched. This boundary also makes repeated runs idempotent.
+Unselected user folders at the root are never moved, flattened, or deleted. Their contents are not inspected or sorted. Items already inside any unselected folder remain untouched, including exact-name documentation comps. This boundary also makes repeated runs idempotent.
 
 ### Composition routing
 
