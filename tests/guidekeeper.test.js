@@ -12,6 +12,49 @@ function folderPaths(h) {
     }).sort();
 }
 
+var WORKFLOW_FOLDER_PATHS = [
+    "01_COMPS",
+    "01_COMPS/LANGUAGES",
+    "01_COMPS/MASTER",
+    "01_COMPS/PRECOMPS",
+    "01_COMPS/PRECOMPS/BACKGROUNDS",
+    "01_COMPS/PRECOMPS/FX",
+    "01_COMPS/PRECOMPS/LOGOS",
+    "01_COMPS/PRECOMPS/PACKSHOTS",
+    "01_COMPS/PRECOMPS/TEXT",
+    "01_COMPS/PRECOMPS/TRANSITIONS",
+    "01_COMPS/PRECOMPS/UNSORTED",
+    "02_ASSETS",
+    "02_ASSETS/AUDIO",
+    "02_ASSETS/FOOTAGE",
+    "02_ASSETS/IMAGES",
+    "02_ASSETS/LOGOS",
+    "02_ASSETS/PACKSHOTS",
+    "02_ASSETS/UNSORTED",
+    "03_GUIDES",
+    "SOLIDS"
+];
+
+function assertWorkflowFolderLabels(h) {
+    WORKFLOW_FOLDER_PATHS.forEach(function (folderPath) {
+        assert.equal(h.findFolderByPath(folderPath).label, 15, folderPath + " is Sandstone");
+    });
+}
+
+function processableRootItems(h) {
+    var intentionalRootNames = {
+        "!_README": true,
+        "!_WORKFLOW_GUIDE": true,
+        "01_COMPS": true,
+        "02_ASSETS": true,
+        "03_GUIDES": true,
+        "SOLIDS": true
+    };
+    return h.project._items.filter(function (item) {
+        return item.parentFolder === h.project.rootFolder && !intentionalRootNames[item.name];
+    });
+}
+
 test("Build Structure classifies root items, preserves nested items, labels Project items, and restores selection", function () {
     var h = createHarness();
     var existingComps = h.addFolder("01_COMPS");
@@ -36,6 +79,7 @@ test("Build Structure classifies root items, preserves nested items, labels Proj
     var solid = h.addFootage("Red Solid 1", null, { solid: true });
     var unknown = h.addFootage("data.bin");
     var userFolder = h.addFolder("USER_WORK");
+    userFolder.label = 4;
     var nestedComp = h.addComp("txt_nested", userFolder);
     var nestedFootage = h.addFootage("nested.mov", userFolder);
 
@@ -62,10 +106,10 @@ test("Build Structure classifies root items, preserves nested items, labels Proj
         "02_ASSETS/LOGOS",
         "02_ASSETS/PACKSHOTS",
         "02_ASSETS/UNSORTED",
+        "02_ASSETS/UNSORTED/USER_WORK",
         "03_GUIDES",
-        "SOLIDS",
-        "USER_WORK"
-    ], "the exact current structure is created without replacing user folders");
+        "SOLIDS"
+    ], "the exact current structure is created and loose user folders move intact");
     assert.equal(h.findFolderByPath("01_COMPS"), existingComps, "existing structural folders are reused");
     assert.equal(h.pathOf(master), "01_COMPS/MASTER/Final_Master");
     assert.equal(h.pathOf(text), "01_COMPS/PRECOMPS/TEXT/TXT_Title");
@@ -82,14 +126,13 @@ test("Build Structure classifies root items, preserves nested items, labels Proj
     assert.equal(h.pathOf(audio), "02_ASSETS/AUDIO/music.WAV");
     assert.equal(h.pathOf(solid), "SOLIDS/Red Solid 1");
     assert.equal(h.pathOf(unknown), "02_ASSETS/UNSORTED/data.bin");
-    assert.equal(h.pathOf(nestedComp), "USER_WORK/txt_nested", "nested comps stay outside root sorting");
-    assert.equal(h.pathOf(nestedFootage), "USER_WORK/nested.mov", "nested footage stays outside root sorting");
+    assert.equal(h.pathOf(userFolder), "02_ASSETS/UNSORTED/USER_WORK");
+    assert.equal(h.pathOf(nestedComp), "02_ASSETS/UNSORTED/USER_WORK/txt_nested");
+    assert.equal(h.pathOf(nestedFootage), "02_ASSETS/UNSORTED/USER_WORK/nested.mov");
+    assert.equal(userFolder.label, 4, "unrelated folder labels are preserved");
     assert.equal(master.label, 1, "the selected MASTER comp is Red in the Project panel");
-    assert.ok(h.project._items.filter(function (item) {
-        return item instanceof h.classes.FolderItem;
-    }).every(function (folder) {
-        return folder.label === 15;
-    }), "every Project panel folder is Sandstone");
+    assertWorkflowFolderLabels(h);
+    assert.deepEqual(processableRootItems(h), []);
     assert.deepEqual(h.project.selection, [master], "only the original selection remains selected");
     assert.deepEqual(h.undoEvents, [
         { type: "begin", name: "Build Structure" },
@@ -122,6 +165,59 @@ test("Build Structure reuses folders and documentation comps without overwriting
     assert.equal(workflowGuide._layers[0].text, "Custom workflow");
 });
 
+test("Build, Rebuild, and Clean Up Root apply only workflow and recursive MASTER labels", function () {
+    var h = createHarness();
+    var firstMaster = h.addComp("First Master");
+    h.selectOnly([firstMaster]);
+    h.click("Build Structure");
+
+    var masterFolder = h.findFolderByPath("01_COMPS/MASTER");
+    var nestedFolder = h.addFolder("DELIVERABLES", masterFolder);
+    var nestedMaster = h.addComp("Nested Master", nestedFolder);
+    var deepFolder = h.addFolder("DEEP", nestedFolder);
+    var deepMaster = h.addComp("Deep Master", deepFolder);
+    var unrelatedFolder = h.addFolder("REFERENCE", h.findFolderByPath("02_ASSETS/IMAGES"));
+    var unrelatedComp = h.addComp("Reference Comp", unrelatedFolder);
+    var masterLayer = h.addLayer(firstMaster, { name: "txt_Title" });
+
+    WORKFLOW_FOLDER_PATHS.forEach(function (folderPath) {
+        h.findFolderByPath(folderPath).label = 2;
+    });
+    firstMaster.label = 3;
+    nestedMaster.label = 4;
+    deepMaster.label = 5;
+    nestedFolder.label = 6;
+    unrelatedFolder.label = 7;
+    unrelatedComp.label = 8;
+    masterLayer.label = 9;
+
+    h.click("Clean up the root");
+
+    assertWorkflowFolderLabels(h);
+    assert.equal(firstMaster.label, 1);
+    assert.equal(nestedMaster.label, 1);
+    assert.equal(deepMaster.label, 1);
+    assert.equal(nestedFolder.label, 6, "non-workflow folders below MASTER retain their labels");
+    assert.equal(unrelatedFolder.label, 7);
+    assert.equal(unrelatedComp.label, 8, "comps outside MASTER are not recoloured");
+    assert.equal(masterLayer.label, 9, "Project-item labels do not change current-comp layer labels");
+
+    var nextMaster = h.addComp("Next Master");
+    h.selectOnly([nextMaster]);
+    nestedMaster.label = 4;
+    deepMaster.label = 5;
+    h.chooseDialog("Rebuild Structure");
+    h.click("Build Structure");
+
+    assertWorkflowFolderLabels(h);
+    assert.equal(nextMaster.label, 1);
+    assert.equal(nestedMaster.label, 1);
+    assert.equal(deepMaster.label, 1);
+    assert.equal(unrelatedComp.label, 8);
+    assert.equal(masterLayer.label, 9);
+    assert.deepEqual(processableRootItems(h), []);
+});
+
 test("Build Structure processes a selected group folder while preserving its hierarchy", function () {
     var h = createHarness();
     var group = h.addFolder("DELIVERABLE_GROUP");
@@ -143,7 +239,7 @@ test("Build Structure processes a selected group folder while preserving its hie
     assert.equal(h.pathOf(deepComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Nested/Deep/Comp C");
     assert.equal(h.pathOf(groupFootage), "02_ASSETS/FOOTAGE/plate.mp4");
     assert.equal(h.pathOf(nestedAudio), "02_ASSETS/AUDIO/voice.wav");
-    assert.equal(group.label, 15);
+    assert.equal(group.label, 0, "non-workflow group folders are not recoloured");
     assert.equal(groupComp.label, 1);
     assert.equal(nestedComp.label, 1);
     assert.equal(deepComp.label, 1);
@@ -198,11 +294,12 @@ test("Build and Rebuild preserve root OVERLORD and matched AI/PSD import groups"
     assert.equal(h.pathOf(photoshop), "02_ASSETS/IMAGES/Renamed Character");
     assert.equal(h.pathOf(photoshopLayers), "02_ASSETS/IMAGES/CHARACTER LAYERS");
     assert.equal(photoshopLayers.numItems, 0, "an empty matched Layers folder is preserved");
-    assert.equal(h.pathOf(genericLayers), "Layers");
-    assert.equal(h.pathOf(genericChild), "Layers/Generic Layer Comp");
-    assert.equal(h.pathOf(unrelatedLayers), "Other Layers");
-    assert.equal(h.pathOf(unrelatedChild), "Other Layers/other.png");
+    assert.equal(h.pathOf(genericLayers), "02_ASSETS/UNSORTED/Layers");
+    assert.equal(h.pathOf(genericChild), "02_ASSETS/UNSORTED/Layers/Generic Layer Comp");
+    assert.equal(h.pathOf(unrelatedLayers), "02_ASSETS/UNSORTED/Other Layers");
+    assert.equal(h.pathOf(unrelatedChild), "02_ASSETS/UNSORTED/Other Layers/other.png");
     assert.equal(h.pathOf(missingCompanion), "02_ASSETS/LOGOS/logo_Solo.AI");
+    assert.deepEqual(processableRootItems(h), []);
 
     var firstRunPaths = h.project._items.map(h.pathOf).sort();
     h.chooseDialog("Rebuild Structure");
@@ -326,14 +423,16 @@ test("Clean up the root sorts only loose root items and is safe to rerun", funct
     assert.equal(h.pathOf(looseFolder), "02_ASSETS/UNSORTED/IMPORT_BATCH");
     assert.equal(h.pathOf(nestedComp), "02_ASSETS/UNSORTED/IMPORT_BATCH/txt_Nested");
     assert.equal(h.pathOf(nestedAsset), "02_ASSETS/UNSORTED/IMPORT_BATCH/nested.wav");
-    assert.equal(looseFolder.label, 15, "a loose folder moved by cleanup is Sandstone");
+    assert.equal(looseFolder.label, 0, "a loose user folder is not treated as a workflow folder");
     assert.equal(h.pathOf(organizedComp), "01_COMPS/MASTER/txt_Organized");
     assert.equal(h.pathOf(organizedAsset), "02_ASSETS/IMAGES/organized.mov");
-    assert.equal(organizedComp.label, 6, "organized comp labels are untouched");
+    assert.equal(organizedComp.label, 1, "every comp below MASTER is Red");
     assert.equal(organizedAsset.label, 4, "organized asset labels are untouched");
     assert.equal(h.pathOf(readme), "!_README");
     assert.equal(h.pathOf(workflowGuide), "!_WORKFLOW_GUIDE");
     assert.deepEqual(h.project.selection, [looseText, looseFolder]);
+    assertWorkflowFolderLabels(h);
+    assert.deepEqual(processableRootItems(h), []);
 
     var pathsAfterFirstRun = h.project._items.map(h.pathOf).sort();
     h.click("Clean up the root");
@@ -400,6 +499,7 @@ test("Clean up the root preserves imported groups without crossing organization 
     assert.equal(h.pathOf(organizedChild), "02_ASSETS/IMAGES/Organized Layers/organized child.png");
     assert.equal(organizedSource.label, 4);
     assert.equal(organizedLayers.label, 6);
+    assert.deepEqual(processableRootItems(h), []);
 
     var firstRunPaths = h.project._items.map(h.pathOf).sort();
     h.click("Clean up the root");
@@ -422,6 +522,7 @@ test("existing-structure Clean Up Root choice uses root-only maintenance", funct
 
     assert.equal(h.pathOf(loose), "02_ASSETS/AUDIO/late.wav");
     assert.equal(h.pathOf(nested), "01_COMPS/MASTER/stay.mov");
+    assert.deepEqual(processableRootItems(h), []);
     assert.deepEqual(h.undoEvents.slice(-2), [
         { type: "begin", name: "Clean Up Root" },
         { type: "end" }
@@ -448,6 +549,7 @@ test("existing-structure Rebuild Structure explicitly performs the full build wo
     assert.equal(h.pathOf(groupedAsset), "02_ASSETS/FOOTAGE/plate.mp4");
     assert.equal(nextMaster.label, 1);
     assert.equal(groupedComp.label, 1);
+    assert.deepEqual(processableRootItems(h), []);
     assert.deepEqual(h.project.selection, [nextMaster, selectedGroup]);
     assert.deepEqual(h.undoEvents.slice(-2), [
         { type: "begin", name: "Build Structure" },

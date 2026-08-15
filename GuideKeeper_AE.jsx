@@ -39,14 +39,15 @@
 // stay in place and turn Red, then the whole folder relocates into
 // MASTER. Useful when comps already sit in their own working groups.
 //
-// Only items sitting loose at the true project root get sorted; anything
-// already inside a folder (yours or the tool's own) is left where it is,
-// so re-running this doesn't re-touch things a second time, and doesn't
-// undo what group-folder processing just did.
+// Only items sitting loose at the true project root get sorted; loose user
+// folders move intact to ASSETS/UNSORTED. Anything already inside a folder
+// is left where it is, so re-running this doesn't re-touch organised content
+// or undo what selected group-folder processing just did.
 //
-// After sorting, every folder is coloured Sandstone and every MASTER
-// comp is coloured Red, both at the Project-panel item level (separate
-// from the per-layer colours Colour Code Layers sets on layers).
+// After sorting, every GuideKeeper workflow folder is coloured Sandstone
+// and every comp anywhere below MASTER is coloured Red, both at the
+// Project-panel item level (separate from the per-layer colours Colour
+// Code Layers sets on layers).
 //
 // ── Colour Code Layers ──────────────────────────────────────────────
 // Applies label colours to every layer in the CURRENT comp, per the
@@ -510,23 +511,22 @@
         return items;
     }
 
-    function processRootItems(items, selectedCompIds, structure, documentationComps, sortLooseFolders, preservationPlan) {
+    function processRootItems(root, items, selectedCompIds, structure, documentationComps, preservationPlan) {
         var plan = preservationPlan || createAssetPreservationPlan(items);
         for (var i = items.length - 1; i >= 0; i--) {
             var item = items[i];
 
+            // Earlier selected-group processing can move an item from this
+            // snapshot before the shared root pass reaches it.
+            if (item.parentFolder !== root) continue;
             if (itemIsInList(item, documentationComps)) continue;
             if (isStructuralItem(item, structure)) continue;
             if (itemIsInList(item, plan.imageItems)) {
                 item.parentFolder = structure.images;
-                if (item instanceof FolderItem) item.label = 15;
                 continue;
             }
             if (item instanceof FolderItem) {
-                if (sortLooseFolders) {
-                    item.parentFolder = classifyProjectItem(item, selectedCompIds, structure);
-                    item.label = 15;
-                }
+                item.parentFolder = classifyProjectItem(item, selectedCompIds, structure);
                 continue;
             }
 
@@ -580,13 +580,23 @@
         return [readmeComp, workflowGuideComp];
     }
 
-    function labelProjectFolders(proj) {
-        for (var i = 1; i <= proj.numItems; i++) {
-            var item = proj.item(i);
-            if (item instanceof FolderItem) {
-                item.label = 15;
+    function labelMasterComps(masterFolder) {
+        var children = snapshotFolderItems(masterFolder);
+        for (var i = 0; i < children.length; i++) {
+            var item = children[i];
+            if (item instanceof CompItem) {
+                item.label = 1;
+            } else if (item instanceof FolderItem) {
+                labelMasterComps(item);
             }
         }
+    }
+
+    function applyProjectItemLabels(structure) {
+        for (var i = 0; i < structure.folders.length; i++) {
+            structure.folders[i].label = 15;
+        }
+        labelMasterComps(structure.master);
     }
 
     function restoreProjectSelection(proj, selection) {
@@ -704,11 +714,11 @@
             // at the top of their destination folder, reverse processing
             // should keep the final order close to the original.
             processRootItems(
+                root,
                 snapshot,
                 selectedCompIds,
                 structure,
                 documentationComps,
-                false,
                 rootPreservationPlan
             );
 
@@ -717,10 +727,7 @@
                 collectPreservedGroupFolders(proj)
             );
 
-            // Colour every folder Sandstone (structural and pre-existing
-            // alike) so folders are visually distinct from comps/footage
-            // at a glance in the Project panel.
-            labelProjectFolders(proj);
+            applyProjectItemLabels(structure);
 
             // Reveal: clear only whatever is currently selected, not the
             // whole project (that was expanding every folder as a side
@@ -754,12 +761,13 @@
         try {
             var snapshot = snapshotRootItems(proj, proj.rootFolder);
             processRootItems(
+                proj.rootFolder,
                 snapshot,
                 {},
                 structure,
-                findDocumentationComps(proj.rootFolder),
-                true
+                findDocumentationComps(proj.rootFolder)
             );
+            applyProjectItemLabels(structure);
             restoreProjectSelection(proj, selection);
         } catch (e) {
             alert("Error: " + e.toString());
