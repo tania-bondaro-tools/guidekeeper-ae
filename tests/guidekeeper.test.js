@@ -35,6 +35,20 @@ var WORKFLOW_FOLDER_PATHS = [
     "SOLIDS"
 ];
 
+test("panel exposes exactly four workflow actions in order", function () {
+    var h = createHarness();
+
+    assert.deepEqual(h.panelButtonLabels, [
+        "Build Structure",
+        "Clean Up Root",
+        "Colour Code Current Comp",
+        "Reduce Project"
+    ]);
+    assert.throws(function () {
+        h.click("Collect files");
+    }, /Button not found: Collect files/);
+});
+
 function assertWorkflowFolderLabels(h) {
     WORKFLOW_FOLDER_PATHS.forEach(function (folderPath) {
         assert.equal(h.findFolderByPath(folderPath).label, 15, folderPath + " is Sandstone");
@@ -191,7 +205,7 @@ test("Build, Rebuild, and Clean Up Root apply only workflow and recursive MASTER
     unrelatedComp.label = 8;
     masterLayer.label = 9;
 
-    h.click("Clean up the root");
+    h.click("Clean Up Root");
 
     assertWorkflowFolderLabels(h);
     assert.equal(firstMaster.label, 1);
@@ -390,7 +404,7 @@ test("existing-structure Cancel makes no mutation and opens no undo group", func
     }]);
 });
 
-test("Clean up the root sorts only loose root items and is safe to rerun", function () {
+test("Clean Up Root sorts only loose root items and is safe to rerun", function () {
     var h = createHarness();
     var master = h.addComp("Master");
     h.selectOnly([master]);
@@ -413,7 +427,7 @@ test("Clean up the root sorts only loose root items and is safe to rerun", funct
     var workflowGuide = h.findByName("!_WORKFLOW_GUIDE")[0];
     h.selectOnly([looseText, looseFolder]);
 
-    h.click("Clean up the root");
+    h.click("Clean Up Root");
 
     assert.equal(h.pathOf(looseText), "01_COMPS/PRECOMPS/TEXT/TXT_Later");
     assert.equal(h.pathOf(looseGuide), "03_GUIDES/Client Safe Zone");
@@ -435,7 +449,7 @@ test("Clean up the root sorts only loose root items and is safe to rerun", funct
     assert.deepEqual(processableRootItems(h), []);
 
     var pathsAfterFirstRun = h.project._items.map(h.pathOf).sort();
-    h.click("Clean up the root");
+    h.click("Clean Up Root");
 
     assert.deepEqual(h.project._items.map(h.pathOf).sort(), pathsAfterFirstRun);
     assert.deepEqual(h.project.selection, [looseText, looseFolder]);
@@ -447,7 +461,7 @@ test("Clean up the root sorts only loose root items and is safe to rerun", funct
     ]);
 });
 
-test("Clean up the root preserves imported groups without crossing organization boundaries", function () {
+test("Clean Up Root preserves imported groups without crossing organization boundaries", function () {
     var h = createHarness();
     var master = h.addComp("Master");
     h.selectOnly([master]);
@@ -476,7 +490,7 @@ test("Clean up the root preserves imported groups without crossing organization 
     var nestedLayers = h.addFolder("Nested Layers", importBatch);
     var nestedChild = h.addFootage("Nested 1.ai", nestedLayers);
 
-    h.click("Clean up the root");
+    h.click("Clean Up Root");
 
     assert.equal(h.pathOf(overlord), "02_ASSETS/IMAGES/overlord");
     assert.equal(overlord.numItems, 0, "an empty OVERLORD folder remains intact");
@@ -502,7 +516,7 @@ test("Clean up the root preserves imported groups without crossing organization 
     assert.deepEqual(processableRootItems(h), []);
 
     var firstRunPaths = h.project._items.map(h.pathOf).sort();
-    h.click("Clean up the root");
+    h.click("Clean Up Root");
 
     assert.deepEqual(h.project._items.map(h.pathOf).sort(), firstRunPaths);
     assert.equal(organizedSource.label, 4);
@@ -557,18 +571,18 @@ test("existing-structure Rebuild Structure explicitly performs the full build wo
     ]);
 });
 
-test("Clean up the root requires an existing complete structure", function () {
+test("Clean Up Root requires an existing complete structure", function () {
     var h = createHarness();
     var loose = h.addFootage("clip.mov");
 
-    h.click("Clean up the root");
+    h.click("Clean Up Root");
 
     assert.equal(h.pathOf(loose), "clip.mov");
     assert.deepEqual(h.alerts, ["No GuideKeeper structure detected. Build Structure first."]);
     assert.deepEqual(h.undoEvents, []);
 });
 
-test("Colour Code Layers applies case-insensitive prefix precedence and type fallbacks", function () {
+test("Colour Code Current Comp applies case-insensitive prefix precedence and type fallbacks", function () {
     var h = createHarness();
     var active = h.addComp("Active");
     var precomp = h.addComp("Source");
@@ -596,13 +610,13 @@ test("Colour Code Layers applies case-insensitive prefix precedence and type fal
     });
     h.project.activeItem = active;
 
-    h.click("Colour Code Layers");
+    h.click("Colour Code Current Comp");
 
     cases.forEach(function (entry) {
         assert.equal(entry.layer.label, entry.expected, entry.name);
     });
     assert.deepEqual(h.undoEvents, [
-        { type: "begin", name: "Colour Code Layers" },
+        { type: "begin", name: "Colour Code Current Comp" },
         { type: "end" }
     ]);
 });
@@ -614,11 +628,11 @@ test("invalid selections alert without opening an undo group", function () {
 
     h.click("Build Structure");
     h.click("Reduce Project");
-    h.click("Colour Code Layers");
+    h.click("Colour Code Current Comp");
 
     assert.deepEqual(h.alerts, [
         "Please choose the main composition or a folder of compositions",
-        "Please choose the main composition or a folder of compositions",
+        "Select only compositions or folders containing compositions before using Reduce Project.",
         "Open a composition first."
     ]);
     assert.deepEqual(h.undoEvents, []);
@@ -648,7 +662,7 @@ test("undo groups close when mutating actions report an error", async function (
         var loose = h.addFootage("late.mov");
         loose.failReparent = true;
 
-        h.click("Clean up the root");
+        h.click("Clean Up Root");
 
         assert.match(h.alerts[0], /^Error: Error: Cannot move late.mov$/);
         assert.deepEqual(h.undoEvents.slice(-2), [
@@ -657,81 +671,223 @@ test("undo groups close when mutating actions report an error", async function (
         ]);
     });
 
-    await t.test("Colour Code Layers", function () {
+    await t.test("Colour Code Current Comp", function () {
         var h = createHarness();
         var comp = h.addComp("Active");
         var layer = h.addLayer(comp, { name: "txt_Title" });
         layer.failLabel = true;
         h.project.activeItem = comp;
 
-        h.click("Colour Code Layers");
+        h.click("Colour Code Current Comp");
 
         assert.match(h.alerts[0], /^Error: Error: Cannot label layer txt_Title$/);
         assert.deepEqual(h.undoEvents, [
-            { type: "begin", name: "Colour Code Layers" },
+            { type: "begin", name: "Colour Code Current Comp" },
             { type: "end" }
         ]);
     });
 
-    await t.test("Reduce Project", function () {
+});
+
+test("Reduce Project recursively discovers every comp below a valid MASTER folder", function () {
+    var h = createHarness();
+    var master = h.addComp("Main Delivery");
+    h.selectOnly([master]);
+    h.click("Build Structure");
+    var masterFolder = h.findFolderByPath("01_COMPS/MASTER");
+    var group = h.addFolder("Campaign", masterFolder);
+    var nested = h.addFolder("Social", group);
+    var groupComp = h.addComp("Campaign Master", group);
+    var nestedComp = h.addComp("Social Master", nested);
+    var unrelated = h.addComp("Unrelated");
+    h.selectOnly([unrelated]);
+    h.commandIds["Reduce Project"] = 42;
+    h.chooseConfirmation(true);
+
+    h.click("Reduce Project");
+
+    assert.equal(h.confirmations.length, 1);
+    assert.match(h.confirmations[0], /3 compositions:/);
+    assert.match(h.confirmations[0], /- Main Delivery/);
+    assert.match(h.confirmations[0], /- Campaign Master/);
+    assert.match(h.confirmations[0], /- Social Master/);
+    assert.match(h.confirmations[0], /01_COMPS\/MASTER/);
+    assert.deepEqual(h.commandLookups, ["Reduce Project"]);
+    assert.deepEqual(h.executedCommands, [42]);
+    assert.deepEqual(h.executedSelections[0].map(function (item) {
+        return item.name;
+    }), [
+        "Main Delivery",
+        "Campaign Master",
+        "Social Master"
+    ]);
+    assert.deepEqual(h.project.selection, [master, groupComp, nestedComp]);
+    assert.deepEqual(h.undoEvents.slice(-2), [
+        { type: "begin", name: "Build Structure" },
+        { type: "end" }
+    ], "the native Reduce Project command is not wrapped in a custom undo group");
+});
+
+test("Reduce Project cancel preserves selection and invokes nothing", function () {
+    var h = createHarness();
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+    h.click("Build Structure");
+    var unrelated = h.addComp("Unrelated");
+    h.selectOnly([unrelated]);
+
+    h.click("Reduce Project");
+
+    assert.equal(h.confirmations.length, 1);
+    assert.deepEqual(h.project.selection, [unrelated]);
+    assert.deepEqual(h.commandLookups, []);
+    assert.deepEqual(h.executedCommands, []);
+});
+
+test("Reduce Project warns when a valid structure has no MASTER comps", function () {
+    var h = createHarness();
+    var formerMaster = h.addComp("Former Master");
+    h.selectOnly([formerMaster]);
+    h.click("Build Structure");
+    formerMaster.parentFolder = h.project.rootFolder;
+    h.selectOnly([formerMaster]);
+
+    h.click("Reduce Project");
+
+    assert.deepEqual(h.alerts, [
+        "GuideKeeper structure detected, but no compositions were found in 01_COMPS/MASTER. Add at least one MASTER composition before using Reduce Project."
+    ]);
+    assert.deepEqual(h.project.selection, [formerMaster]);
+    assert.deepEqual(h.confirmations, []);
+    assert.deepEqual(h.commandLookups, []);
+});
+
+test("Reduce Project resolves nested manual folders and deduplicates comps", function () {
+    var h = createHarness();
+    var group = h.addFolder("Deliverables");
+    var nested = h.addFolder("Nested", group);
+    var directComp = h.addComp("Direct", group);
+    var nestedComp = h.addComp("Nested Master", nested);
+    h.selectOnly([group, nestedComp]);
+    h.commandIds["Reduce Project"] = 42;
+    h.chooseConfirmation(true);
+
+    h.click("Reduce Project");
+
+    assert.match(h.confirmations[0], /the selected compositions/);
+    assert.match(h.confirmations[0], /2 compositions:/);
+    assert.deepEqual(h.project.selection, [directComp, nestedComp]);
+    assert.deepEqual(h.executedSelections[0], [directComp, nestedComp]);
+    assert.deepEqual(h.executedCommands, [42]);
+    assert.deepEqual(h.undoEvents, []);
+});
+
+test("Reduce Project confirmation summarizes large comp sets readably", function () {
+    var h = createHarness();
+    var group = h.addFolder("Many Masters");
+    for (var i = 1; i <= 9; i++) {
+        h.addComp("Master " + i, group);
+    }
+    h.selectOnly([group]);
+
+    h.click("Reduce Project");
+
+    assert.match(h.confirmations[0], /9 compositions:/);
+    assert.match(h.confirmations[0], /- Master 1/);
+    assert.match(h.confirmations[0], /- Master 8/);
+    assert.match(h.confirmations[0], /- \.\.\.and 1 more/);
+    assert.doesNotMatch(h.confirmations[0], /- Master 9/);
+    assert.deepEqual(h.project.selection, [group]);
+});
+
+test("Reduce Project rejects empty and invalid manual selections", async function (t) {
+    await t.test("empty selection", function () {
         var h = createHarness();
-        var comp = h.addComp("Master");
-        h.selectOnly([comp]);
-        h.commandIds["Reduce Project"] = 42;
-        h.app.failExecuteCommand = true;
 
         h.click("Reduce Project");
 
-        assert.match(h.alerts[0], /^Error executing 'Reduce Project':\nError: Native command failed$/);
-        assert.deepEqual(h.undoEvents, [
-            { type: "begin", name: "Reduce Project" },
-            { type: "end" }
+        assert.deepEqual(h.alerts, [
+            "Select one or more compositions, or folders containing compositions, before using Reduce Project."
         ]);
+        assert.deepEqual(h.confirmations, []);
+    });
+
+    await t.test("non-comp item", function () {
+        var h = createHarness();
+        var footage = h.addFootage("clip.mov");
+        h.selectOnly([footage]);
+
+        h.click("Reduce Project");
+
+        assert.deepEqual(h.alerts, [
+            "Select only compositions or folders containing compositions before using Reduce Project."
+        ]);
+        assert.deepEqual(h.confirmations, []);
+    });
+
+    await t.test("folder without comps", function () {
+        var h = createHarness();
+        var folder = h.addFolder("Empty");
+        h.addFootage("clip.mov", folder);
+        h.selectOnly([folder]);
+
+        h.click("Reduce Project");
+
+        assert.deepEqual(h.alerts, [
+            "No compositions were found in the current selection. Select a composition or a folder containing compositions."
+        ]);
+        assert.deepEqual(h.confirmations, []);
     });
 });
 
-test("Reduce Project and Collect Files look up and invoke native commands", function () {
-    var h = createHarness();
-    var comp = h.addComp("Master");
-    h.selectOnly([comp]);
-    h.commandIds["Reduce Project"] = 42;
-    h.commandIds["Collect Files"] = 88;
+test("Reduce Project surfaces native command lookup failures without changing selection", async function (t) {
+    await t.test("command unavailable", function () {
+        var h = createHarness();
+        var folder = h.addFolder("Deliverables");
+        h.addComp("Master", folder);
+        h.selectOnly([folder]);
+        h.chooseConfirmation(true);
 
-    h.click("Reduce Project");
-    h.click("Collect files");
+        h.click("Reduce Project");
 
-    assert.deepEqual(h.commandLookups, [
-        "Reduce Project",
-        "Collect Files...",
-        "Collect Files"
-    ]);
-    assert.deepEqual(h.executedCommands, [42, 88]);
-    assert.deepEqual(h.undoEvents, [
-        { type: "begin", name: "Reduce Project" },
-        { type: "end" }
-    ]);
+        assert.deepEqual(h.commandLookups, ["Reduce Project"]);
+        assert.deepEqual(h.alerts, ["Cannot find 'Reduce Project' command."]);
+        assert.deepEqual(h.project.selection, [folder]);
+        assert.deepEqual(h.executedCommands, []);
+    });
+
+    await t.test("lookup throws", function () {
+        var h = createHarness();
+        var folder = h.addFolder("Deliverables");
+        h.addComp("Master", folder);
+        h.selectOnly([folder]);
+        h.chooseConfirmation(true);
+        h.app.failFindMenuCommand = true;
+
+        h.click("Reduce Project");
+
+        assert.deepEqual(h.alerts, [
+            "Error executing 'Reduce Project':\nError: Command lookup failed"
+        ]);
+        assert.deepEqual(h.project.selection, [folder]);
+        assert.deepEqual(h.executedCommands, []);
+    });
 });
 
-test("unavailable native commands preserve their current alerts and undo behavior", function () {
+test("Reduce Project applies confirmed comp selection before surfacing execution errors", function () {
     var h = createHarness();
-    var comp = h.addComp("Master");
-    h.selectOnly([comp]);
+    var folder = h.addFolder("Deliverables");
+    var comp = h.addComp("Master", folder);
+    h.selectOnly([folder]);
+    h.chooseConfirmation(true);
+    h.commandIds["Reduce Project"] = 42;
+    h.app.failExecuteCommand = true;
 
     h.click("Reduce Project");
-    h.click("Collect files");
 
-    assert.deepEqual(h.commandLookups, [
-        "Reduce Project",
-        "Collect Files...",
-        "Collect Files"
-    ]);
-    assert.deepEqual(h.executedCommands, []);
+    assert.deepEqual(h.project.selection, [comp]);
     assert.deepEqual(h.alerts, [
-        "Cannot find 'Reduce Project' command.",
-        "Cannot find 'Collect Files...' command."
+        "Error executing 'Reduce Project':\nError: Native command failed"
     ]);
-    assert.deepEqual(h.undoEvents, [
-        { type: "begin", name: "Reduce Project" },
-        { type: "end" }
-    ]);
+    assert.deepEqual(h.undoEvents, []);
 });

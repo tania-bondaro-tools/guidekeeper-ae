@@ -8,10 +8,14 @@ function createHarness() {
     var nextId = 1;
     var alerts = [];
     var buttons = {};
+    var panelButtonLabels = [];
     var undoEvents = [];
     var commandLookups = [];
     var executedCommands = [];
+    var executedSelections = [];
     var commandIds = {};
+    var confirmationChoices = [];
+    var confirmations = [];
     var dialogChoices = [];
     var dialogs = [];
 
@@ -240,12 +244,14 @@ function createHarness() {
             undoEvents.push({ type: "end" });
         },
         findMenuCommandId: function (name) {
+            if (app.failFindMenuCommand) throw new Error("Command lookup failed");
             commandLookups.push(name);
             return commandIds[name] || 0;
         },
         executeCommand: function (id) {
             if (app.failExecuteCommand) throw new Error("Native command failed");
             executedCommands.push(id);
+            executedSelections.push(project.selection.slice());
         }
     };
 
@@ -276,6 +282,7 @@ function createHarness() {
         };
         owner._children.push(control);
         if (kind === "button") buttons[label] = control;
+        if (kind === "button" && owner.kind === "palette") panelButtonLabels.push(label);
         return control;
     }
 
@@ -315,6 +322,10 @@ function createHarness() {
         app: app,
         alert: function (message) {
             alerts.push(String(message));
+        },
+        confirm: function (message) {
+            confirmations.push(String(message));
+            return confirmationChoices.length ? confirmationChoices.shift() : false;
         },
         Panel: Panel,
         Window: Window,
@@ -372,10 +383,13 @@ function createHarness() {
         app: app,
         project: project,
         alerts: alerts,
+        panelButtonLabels: panelButtonLabels,
         undoEvents: undoEvents,
         commandLookups: commandLookups,
         executedCommands: executedCommands,
+        executedSelections: executedSelections,
         commandIds: commandIds,
+        confirmations: confirmations,
         dialogs: dialogs,
         classes: {
             CompItem: CompItem,
@@ -402,6 +416,9 @@ function createHarness() {
         },
         chooseDialog: function (label) {
             dialogChoices.push(label);
+        },
+        chooseConfirmation: function (accepted) {
+            confirmationChoices.push(accepted);
         },
         click: click,
         pathOf: pathOf,
