@@ -9,8 +9,8 @@
 // clicking. Builds this structure (creating folders only if missing)
 // and sorts loose items into it:
 //
-//   !_README            <- auto-filled template
-//   !_WORKFLOW_GUIDE     <- placeholder, needs a real visual summary
+//   !_README            <- generated project handoff documentation
+//   !_WORKFLOW_GUIDE     <- generated onboarding and workflow reference
 //   01_COMPS/
 //     MASTER             <- every selected comp, plus comps inside any
 //                           selected folder (all coloured Red)
@@ -28,6 +28,7 @@
 //     IMAGES             <- image files, intact OVERLORD folders, and
 //                           paired AI/PSD source + Layers folders
 //     AUDIO              <- audio files
+//     FONTS              <- font files supplied with the project
 //     PACKSHOTS          <- image files named packshot_
 //     LOGOS              <- image files named logo_
 //     UNSORTED           <- anything unrecognised that isn't a solid
@@ -137,17 +138,12 @@
         return f;
     }
 
-    // Find an existing comp by exact name anywhere in the project, or
-    // create it with the given settings and one text layer pre-filled
-    // with initialText. Never overwrites an existing comp's content.
-    function findOrCreateComp(name, width, height, duration, frameRate, initialText) {
+    function findCompByName(name) {
         for (var i = 1; i <= app.project.numItems; i++) {
             var it = app.project.item(i);
             if (it instanceof CompItem && it.name === name) return it;
         }
-        var comp = app.project.items.addComp(name, width, height, 1, duration, frameRate);
-        comp.layers.addText(initialText);
-        return comp;
+        return null;
     }
 
     // Require at least 1 selected item, and every selected item must be a
@@ -339,6 +335,7 @@
         structure.footage     = findOrCreate(structure.assets, "FOOTAGE");
         structure.images      = findOrCreate(structure.assets, "IMAGES");
         structure.audio       = findOrCreate(structure.assets, "AUDIO");
+        structure.fonts       = findOrCreate(structure.assets, "FONTS");
         structure.asPackshots = findOrCreate(structure.assets, "PACKSHOTS");
         structure.asLogos     = findOrCreate(structure.assets, "LOGOS");
         structure.asUnsorted  = findOrCreate(structure.assets, "UNSORTED");
@@ -350,7 +347,7 @@
             structure.comps, structure.master, structure.languages, structure.precomps,
             structure.pcText, structure.pcPackshots, structure.pcLogos,
             structure.pcTrans, structure.pcBg, structure.pcFx, structure.pcUnsorted,
-            structure.assets, structure.footage, structure.images, structure.audio,
+            structure.assets, structure.footage, structure.images, structure.audio, structure.fonts,
             structure.asPackshots, structure.asLogos, structure.asUnsorted,
             structure.guides, structure.solids
         ];
@@ -386,10 +383,11 @@
         structure.footage = findChildFolder(structure.assets, "FOOTAGE");
         structure.images = findChildFolder(structure.assets, "IMAGES");
         structure.audio = findChildFolder(structure.assets, "AUDIO");
+        structure.fonts = findChildFolder(structure.assets, "FONTS");
         structure.asPackshots = findChildFolder(structure.assets, "PACKSHOTS");
         structure.asLogos = findChildFolder(structure.assets, "LOGOS");
         structure.asUnsorted = findChildFolder(structure.assets, "UNSORTED");
-        if (!structure.footage || !structure.images || !structure.audio ||
+        if (!structure.footage || !structure.images || !structure.audio || !structure.fonts ||
                 !structure.asPackshots || !structure.asLogos || !structure.asUnsorted) {
             return null;
         }
@@ -402,7 +400,7 @@
             structure.comps, structure.master, structure.languages, structure.precomps,
             structure.pcText, structure.pcPackshots, structure.pcLogos,
             structure.pcTrans, structure.pcBg, structure.pcFx, structure.pcUnsorted,
-            structure.assets, structure.footage, structure.images, structure.audio,
+            structure.assets, structure.footage, structure.images, structure.audio, structure.fonts,
             structure.asPackshots, structure.asLogos, structure.asUnsorted,
             structure.guides, structure.solids
         ];
@@ -572,32 +570,195 @@
         return documentationComps;
     }
 
-    function createDocumentationComps(root, masterComp) {
-        var w   = masterComp ? masterComp.width     : 1920;
-        var h   = masterComp ? masterComp.height    : 1080;
-        var dur = masterComp ? masterComp.duration  : 10;
-        var fr  = masterComp ? masterComp.frameRate : 25;
+    function padTwoDigits(value) {
+        return value < 10 ? "0" + value : String(value);
+    }
 
-        var monthNames = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-        var now = new Date();
-        var dateStamp = monthNames[now.getMonth()] + now.getFullYear();
+    function formatDocumentationDate(now) {
+        return now.getFullYear() + "-" +
+            padTwoDigits(now.getMonth() + 1) + "-" +
+            padTwoDigits(now.getDate());
+    }
 
-        var readmeText =
-            "PROJECT: [Job number]_[CLIENT]_[PROJECT]\r" +
-            "CREATED BY: [Name/Agency] | DATE: " + dateStamp + " | AE VERSION: " + app.version + "\r" +
-            "DESCRIPTION: [What the project delivers]\r" +
-            "KEY COMPS: [List deliverables]\r" +
-            "FONTS: [All fonts used in this project]\r" +
-            "PLUGINS / SCRIPTS: [Name + version, provided in project folder]\r" +
-            "KNOWN ISSUES: [Or None] | NOTES: [What to do, what not to touch]";
-        var readmeComp = findOrCreateComp("!_README", w, h, dur, fr, readmeText);
-        readmeComp.parentFolder = root;
+    function setDocumentationTextStyle(layer, text, font, fontSize, color, position) {
+        var textProperties = layer.property("ADBE Text Properties");
+        var sourceText = textProperties.property("ADBE Text Document");
+        var textDocument = sourceText.value;
+        textDocument.text = text;
+        textDocument.font = font;
+        textDocument.fontSize = fontSize;
+        textDocument.applyFill = true;
+        textDocument.fillColor = color;
+        textDocument.applyStroke = false;
+        sourceText.setValue(textDocument);
 
-        var guideText =
-            "WORKFLOW GUIDE\r" +
-            "(Replace with a visual summary: folder structure, multilingual rollout, where to find things.)";
-        var workflowGuideComp = findOrCreateComp("!_WORKFLOW_GUIDE", w, h, dur, fr, guideText);
-        workflowGuideComp.parentFolder = root;
+        layer.property("ADBE Transform Group")
+            .property("ADBE Position")
+            .setValue(position);
+    }
+
+    function createDocumentationComp(name, headerText, bodyText, bodyFontSize, bodyPosition, solidsFolder) {
+        var comp = null;
+        var backgroundSource = null;
+        try {
+            comp = app.project.items.addComp(name, 1250, 2160, 1, 10, 25);
+            comp.bgColor = [0, 0, 0];
+
+            var background = comp.layers.addSolid(
+                [0, 0, 0],
+                name + " BACKGROUND",
+                1250,
+                2160,
+                1,
+                comp.duration
+            );
+            backgroundSource = background.source;
+            backgroundSource.parentFolder = solidsFolder;
+
+            var body = comp.layers.addText(bodyText);
+            body.name = "BODY";
+            setDocumentationTextStyle(
+                body,
+                bodyText,
+                "ArialMT",
+                bodyFontSize,
+                [1, 1, 1],
+                bodyPosition
+            );
+
+            var header = comp.layers.addText(headerText);
+            header.name = "HEADER";
+            setDocumentationTextStyle(
+                header,
+                headerText,
+                "Arial-BoldMT",
+                48,
+                [0, 1, 163 / 255],
+                [60, 100]
+            );
+            return comp;
+        } catch (creationError) {
+            var cleanupErrors = [];
+            if (comp) {
+                try {
+                    comp.remove();
+                } catch (compCleanupError) {
+                    cleanupErrors.push("could not remove incomplete comp: " + compCleanupError.toString());
+                }
+            }
+            if (backgroundSource) {
+                try {
+                    backgroundSource.remove();
+                } catch (solidCleanupError) {
+                    cleanupErrors.push("could not remove background source: " + solidCleanupError.toString());
+                }
+            }
+
+            var message = "Could not create documentation comp '" + name + "': " +
+                creationError.toString();
+            if (cleanupErrors.length > 0) {
+                message += " (" + cleanupErrors.join("; ") + ")";
+            }
+            throw new Error(message);
+        }
+    }
+
+    function ensureDocumentationComp(root, solidsFolder, name, headerText, bodyText, bodyFontSize, bodyPosition) {
+        var existing = findCompByName(name);
+        if (existing) {
+            existing.parentFolder = root;
+            return existing;
+        }
+
+        var created = createDocumentationComp(
+            name,
+            headerText,
+            bodyText,
+            bodyFontSize,
+            bodyPosition,
+            solidsFolder
+        );
+        created.parentFolder = root;
+        return created;
+    }
+
+    function createDocumentationComps(root, solidsFolder) {
+        var dateStamp = formatDocumentationDate(new Date());
+        var readmeText = [
+            "PROJECT 1234567_PRODUCTNAME_CAMPAIGN_DATE",
+            "",
+            "CREATED BY MOTION DESIGNER NAME / AGENCY",
+            "",
+            "DATE " + dateStamp,
+            "",
+            "AE VERSION " + app.version,
+            "",
+            "DESCRIPTION CAMPAIGN DESCRIPTION. WHAT FORMATS. WHAT LANGUAGES. MULTILINGUAL ROLLOUT: EN / FR / NL / IT",
+            "",
+            "KEY COMPS",
+            "",
+            "FONTS ALL FONTS PROVIDED IN 02_ASSETS/FONTS",
+            "",
+            "PLUGINS / SCRIPTS OLIVER - TEXT ROLLOUT V1.0 (SCRIPTUI PANEL) NO THIRD-PARTY PLUGINS REQUIRED",
+            "",
+            "KNOWN ISSUES",
+            "",
+            "NOTES TEXT LAYERS ARE IN PRECOMPS (01_COMPS/PRECOMPS/TEXT/) SEE !_WORKFLOW_GUIDE COMP FOR NAMING RULES AND FULL INSTRUCTIONS."
+        ].join("\r");
+
+        var workflowGuideText = [
+            "PROJECT TEMPLATE — REFERENCE V1.0",
+            "",
+            "HOW THIS PROJECT WORKS",
+            "",
+            "ALL TEXT LAYERS ARE IN PRECOMPS INSIDE 01_COMPS/PRECOMPS/TEXT/ EACH TEXT PRECOMP IS NAMED TXT_FIELDNAME (TXT_CTA, TXT_LEGAL, ETC.) EACH TEXT LAYER INSIDE MUST ALSO BE NAMED TXT_FIELDNAME MASTER COMPS REFERENCE THESE PRECOMPS — DO NOT PUT TEXT DIRECTLY IN MASTERS",
+            "",
+            "SWITCHING LANGUAGES",
+            "",
+            "METHOD 1 — CSV ROLLOUT PANEL (RECOMMENDED FOR BULK CHANGES) WINDOW > OLIVER - TEXT ROLLOUT SELECT LANGUAGE > CLICK ROLLOUT > ALL TEXTS UPDATE AT ONCE CSV FILE: DATA/TRANSLATIONS.CSV (ON DISK, NEXT TO THE .AEP)",
+            "",
+            "METHOD 2 — ESSENTIAL PROPERTIES (FOR QUICK SINGLE EDITS) IN A MASTER COMP, SELECT A TXT_ PRECOMP LAYER EDIT THE TEXT IN THE ESSENTIAL PROPERTIES PANEL",
+            "",
+            "ADDING A NEW TEXT FIELD",
+            "CREATE A NEW PRECOMP: NAME IT TXT_YOURFIELD",
+            "INSIDE, CREATE A TEXT LAYER: NAME IT TXT_YOURFIELD",
+            "PLACE THE PRECOMP IN YOUR MASTER COMP(S)",
+            "ADD A ROW IN TRANSLATIONS.CSV: YOURFIELD,EN TEXT,FR TEXT,...",
+            "IN THE PRECOMP, OPEN ESSENTIAL GRAPHICS > ADD SOURCE TEXT",
+            "",
+            "ADDING A NEW LANGUAGE",
+            "ADD A COLUMN IN TRANSLATIONS.CSV (E.G. ES, DE, PT)",
+            "THE ROLLOUT PANEL DETECTS IT AUTOMATICALLY",
+            "",
+            "NAMING CONVENTION",
+            "",
+            "TXT_ = TEXT LAYERS (LABEL: RED) BG_ = BACKGROUNDS/FOOTAGE (LABEL: GREEN) LOGO_ = LOGOS (LABEL: SEA FOAM) PACKSHOT_ = PRODUCT SHOTS (LABEL: PEACH) ADJ_ = ADJUSTMENT LAYERS (LABEL: PURPLE) NULL_ = CONTROLLERS (LABEL: ORANGE) GUIDE_ = SAFE ZONES/GUIDES (LABEL: CYAN) AUDIO_ = AUDIO FILES (LABEL: YELLOW) SHAPE_ = SHAPE LAYERS (LABEL: PINK) VFX_ = EFFECTS/TRANSITIONS (LABEL: FUCHSIA) MSK_ = MASKS/MATTES (LABEL: BROWN)",
+            "",
+            "FOLDER STRUCTURE",
+            "",
+            "01_COMPS/MASTER/ = FINAL RENDER COMPS 01_COMPS/LANGUAGES/ = MANUAL LANGUAGE VERSIONS 01_COMPS/PRECOMPS/ = TEXT, PACKSHOTS, LOGOS, TRANSITIONS, BACKGROUNDS, FX, UNSORTED 02_ASSETS/ = FOOTAGE, IMAGES, AUDIO, FONTS, PACKSHOTS, LOGOS, UNSORTED 03_GUIDES/ = SAFE ZONE COMPS SOLIDS/ = NATIVE SOLID SOURCES DATA/TRANSLATIONS.CSV = ON DISK, NEXT TO THE .AEP",
+            "",
+            "QUESTIONS: DAVIDLEBRIS@INSIDEIDEAS.AGENCY"
+        ].join("\r");
+
+        var readmeComp = ensureDocumentationComp(
+            root,
+            solidsFolder,
+            "!_README",
+            "!_README",
+            readmeText,
+            24,
+            [60, 180]
+        );
+        var workflowGuideComp = ensureDocumentationComp(
+            root,
+            solidsFolder,
+            "!_WORKFLOW_GUIDE",
+            "!_WORKFLOW_GUIDE — HOW TO USE THIS TEMPLATE",
+            workflowGuideText,
+            15,
+            [60, 200]
+        );
 
         return [readmeComp, workflowGuideComp];
     }
@@ -705,11 +866,7 @@
             var root = proj.rootFolder;
             var structure = createProjectStructure(root);
 
-            var masterComp = null;
-            for (var mc = 0; mc < sel.length; mc++) {
-                if (sel[mc] instanceof CompItem) { masterComp = sel[mc]; break; }
-            }
-            var documentationComps = createDocumentationComps(root, masterComp);
+            var documentationComps = createDocumentationComps(root, structure.solids);
 
             // Plan root-level preserved groups before selected folders move.
             // This also prevents a selected Layers/OVERLORD folder from being

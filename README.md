@@ -40,6 +40,7 @@ Everything below is the convention the script ships with by default. None of it 
         <name>.ai + <name> Layers
         <name>.psd + <name> Layers
     AUDIO
+    FONTS
     PACKSHOTS
     LOGOS
     UNSORTED
@@ -47,19 +48,11 @@ Everything below is the convention the script ships with by default. None of it 
 SOLIDS
 ```
 
-`!_README` is a comp with one text layer, pre-filled with this template, sized and timed to match whichever comp you selected as master, only created once and never overwritten on repeat runs:
+`!_README` and `!_WORKFLOW_GUIDE` are generated as 1250 × 2160 documentation comps at the project root. Each uses a native full-frame black solid behind styled Arial text and is fully initialized only when absent; repeat Build/Rebuild runs reuse the exact-name comp and do not overwrite user-edited layers or content.
 
-```
-PROJECT: [Job number]_[CLIENT]_[PROJECT]
-CREATED BY: [Name/Agency] | DATE: <auto> | AE VERSION: <auto>
-DESCRIPTION: [What the project delivers]
-KEY COMPS: [List deliverables]
-FONTS: [All fonts used in this project]
-PLUGINS / SCRIPTS: [Name + version, provided in project folder]
-KNOWN ISSUES: [Or None] | NOTES: [What to do, what not to touch]
-```
+`!_README` contains the project handoff template, including the project naming pattern, creator, deliverables, fonts, tools, issues, and notes. Its current date (`YYYY-MM-DD`) and After Effects version are populated automatically. `!_WORKFLOW_GUIDE` contains the full onboarding reference for text precomps, language rollout, Essential Properties, naming labels, and folder locations. References to `DATA/TRANSLATIONS.CSV` describe a file on disk next to the `.aep`; GuideKeeper does not create a Project-panel `DATA` folder.
 
-DATE and AE VERSION fill in automatically; everything else is a prompt to complete by hand. `!_WORKFLOW_GUIDE` is created the same way, as a placeholder for a real visual summary you add yourself, the script can't generate that content.
+`02_ASSETS/FONTS` is a protected Sandstone workflow folder for font files supplied with the project. Like the other structural folders, it is reused and never removed by empty-folder cleanup.
 
 ## Installation
 
