@@ -1,174 +1,276 @@
 # GuideKeeper AE
 
-A ScriptUI panel for After Effects that keeps a project organised around a fixed folder structure and a prefix-based naming and colour-coding convention, so every project ends up structured the same way without anyone sorting it by hand.
+GuideKeeper AE is a self-contained Adobe After Effects ExtendScript (`.jsx`) and
+ScriptUI panel for motion designers and teams that share, hand off, or inherit
+projects. It creates a predictable Project-panel structure, sorts root-level
+items, applies naming-based labels, and safely prepares projects for After
+Effects' native Reduce Project command.
 
-Built for a small motion design team spread across multiple locations sharing After Effects files.
+The installed panel has no runtime dependencies. It targets desktop After
+Effects versions that support ExtendScript ScriptUI panels and the host APIs
+used by the script. The project does not currently publish a minimum-version
+compatibility matrix.
 
-## What it does
+## Install
 
-| Button | Scope | Action |
-|---|---|---|
-| Build Structure | Whole project | Builds the full structure on first use; on existing structures, offers Rebuild Structure, Clean Up Root, or Cancel |
-| Clean Up Root | Project root only | Sorts newly imported loose comps, assets, and folders without touching organised content |
-| Colour Code Current Comp | Current comp only | Applies a label colour to every layer, by name prefix or layer type |
-| Reduce Project | Whole project | Confirms the MASTER or manually selected comp set, then runs After Effects' native reduction command |
+1. Download `GuideKeeper_AE.jsx`.
+2. Copy it into the After Effects `Scripts\ScriptUI Panels` directory:
+   - **Windows:** `C:\Program Files\Adobe\Adobe After Effects <version>\Support Files\Scripts\ScriptUI Panels\`
+   - **macOS:** `/Applications/Adobe After Effects <version>/Scripts/ScriptUI Panels/`
+3. Restart After Effects.
+4. Open **Window > GuideKeeper_AE.jsx**.
+5. Use the panel as a floating palette or dock it with the rest of the
+   After Effects interface.
 
-The panel keeps exactly these four workflow actions in this order. **Build Structure** is the only primary action and uses GuideKeeper's `#00FFA3` accent when the host can render it reliably; the other three actions retain standard native grey controls, and unsupported hosts fall back to native button rendering. Every action has a plain-text hover tooltip. The small **?** utility control opens a compact, non-destructive help palette describing the current Build/Rebuild, cleanup, colour, reduction, and selected-folder workflows.
+## Panel
 
-Everything below is the convention the script ships with by default. None of it is hardcoded logic, the prefix lists and colour mapping sit in one place near the top of the script, plain constants you edit to match your own team's naming.
+The workflow actions appear in this exact order:
 
-## Folder structure
+| Action | Scope | Purpose |
+| --- | --- | --- |
+| **Build Structure** | Project and selected comps/folders | Creates or rebuilds the GuideKeeper structure and performs the full organization workflow |
+| **Clean Up Root** | True project root only | Sorts newly imported root-level items into an existing structure |
+| **Colour Code Current Comp** | Active comp only | Applies the naming and layer-type label convention to every layer in the current comp |
+| **Reduce Project** | Resolved MASTER or manual comp set | Confirms the comp set, then invokes After Effects' native Reduce Project command |
 
-`Build Structure` builds this (existing folders are reused, never duplicated):
+**Build Structure** is the primary button and uses the `#00FFA3` GuideKeeper
+accent when the host can render the custom treatment. The other three actions
+remain native grey buttons. If custom drawing is unavailable, Build Structure
+also falls back to a native button.
 
-```
+Every workflow action has a concise hover tooltip. The separate **?** utility
+opens a resizable, non-destructive help palette covering Build/Rebuild, root
+cleanup, current-comp labels, reduction, and selected-folder handling. Reusing
+**?** focuses the open help palette; closing it allows a fresh palette to open.
+
+## Build Structure
+
+For a first build, or when only an incomplete structure exists, select one or
+more compositions and/or folders containing compositions, then choose **Build
+Structure**. The action:
+
+- creates missing structural folders while reusing matching existing folders;
+- creates or reuses the two root documentation comps;
+- puts selected loose comps in `01_COMPS/MASTER`;
+- processes selected group folders recursively;
+- sorts other loose root items by the rules below;
+- labels workflow folders and all comps recursively below `MASTER`;
+- restores the original Project-panel selection; and
+- performs its mutations in one **Build Structure** undo group.
+
+A selected group folder moves to `01_COMPS/MASTER`. Its nested composition
+hierarchy stays intact and all comps inside it become MASTER comps. Footage is
+extracted recursively and sorted by the normal asset rules. Supported OVERLORD
+and matched Illustrator/Photoshop import groups remain intact. A full build can
+remove non-structural folders that become empty after their contents are
+extracted; it does not remove GuideKeeper folders or preserved import groups.
+
+If the complete GuideKeeper structure already exists, **Build Structure**
+offers:
+
+- **Rebuild Structure** - runs the complete workflow again using the current
+  comp/folder selection.
+- **Clean Up Root** - runs only the true-root maintenance workflow.
+- **Cancel** - closes the dialog without mutation or an undo group.
+
+Build and Rebuild are repeatable: they reuse the fixed folder hierarchy and
+exact-name documentation comps instead of duplicating them.
+
+## Project structure
+
+The fixed structure is:
+
+```text
 !_README
 !_WORKFLOW_GUIDE
 01_COMPS/
-    MASTER
-    LANGUAGES
+    MASTER/
+    LANGUAGES/
     PRECOMPS/
-        TEXT
-        PACKSHOTS
-        LOGOS
-        TRANSITIONS
-        BACKGROUNDS
-        FX
-        UNSORTED
+        TEXT/
+        PACKSHOTS/
+        LOGOS/
+        TRANSITIONS/
+        BACKGROUNDS/
+        FX/
+        UNSORTED/
 02_ASSETS/
-    FOOTAGE
+    FOOTAGE/
     IMAGES/
-        OVERLORD              (when imported)
-        <name>.ai + <name> Layers
-        <name>.psd + <name> Layers
-    AUDIO
-    FONTS
-    PACKSHOTS
-    LOGOS
-    UNSORTED
-03_GUIDES
-SOLIDS
+    AUDIO/
+    FONTS/
+    PACKSHOTS/
+    LOGOS/
+    UNSORTED/
+03_GUIDES/
+SOLIDS/
 ```
 
-`!_README` and `!_WORKFLOW_GUIDE` are generated as 1250 × 2160 documentation comps at the project root. Each uses a native full-frame black solid behind styled Arial text and is fully initialized only when absent; repeat Build/Rebuild runs reuse the exact-name comp and do not overwrite user-edited layers or content.
+The two documentation comps intentionally remain at the true project root.
+`LANGUAGES` and `TRANSITIONS` are manual destinations: GuideKeeper creates
+them but does not auto-sort into them. `FONTS` is also a supplied-font
+destination; the current file-type classifier does not automatically detect
+font files.
 
-`!_README` contains the project handoff template, including the project naming pattern, creator, deliverables, fonts, tools, issues, and notes. Its current date (`YYYY-MM-DD`) and After Effects version are populated automatically. `!_WORKFLOW_GUIDE` contains the full onboarding reference for text precomps, language rollout, Essential Properties, naming labels, and folder locations. References to `DATA/TRANSLATIONS.CSV` describe a file on disk next to the `.aep`; GuideKeeper does not create a Project-panel `DATA` folder.
+GuideKeeper does **not** create a Project-panel `DATA` folder. The generated
+workflow guide's `DATA/TRANSLATIONS.CSV` reference describes an optional
+on-disk path next to the `.aep`.
 
-`02_ASSETS/FONTS` is a protected Sandstone workflow folder for font files supplied with the project. Like the other structural folders, it is reused and never removed by empty-folder cleanup.
+### Composition classification
 
-## Installation
+Rules are case-insensitive and the first match wins.
 
-1. Download `GuideKeeper_AE.jsx`
-2. Copy it into your After Effects **Scripts/ScriptUI Panels** folder:
-   - **Windows**: `C:\Program Files\Adobe\Adobe After Effects <version>\Support Files\Scripts\ScriptUI Panels\`
-   - **Mac**: `/Applications/Adobe After Effects <version>/Scripts/ScriptUI Panels/`
-3. Restart After Effects
-4. Open it from **Window > GuideKeeper_AE.jsx**, and dock it wherever's convenient
+| Composition | Destination |
+| --- | --- |
+| Selected loose comp | `01_COMPS/MASTER` |
+| Name starts with `guide_`, or contains `safe zone`, `safezone`, or `safe-zone` | `03_GUIDES` |
+| Name starts with `txt_` | `01_COMPS/PRECOMPS/TEXT` |
+| Name starts with `packshot_` | `01_COMPS/PRECOMPS/PACKSHOTS` |
+| Name starts with `logo_` | `01_COMPS/PRECOMPS/LOGOS` |
+| Name starts with `bg_` | `01_COMPS/PRECOMPS/BACKGROUNDS` |
+| Name starts with `vfx_` | `01_COMPS/PRECOMPS/FX` |
+| No rule matches | `01_COMPS/PRECOMPS/UNSORTED` |
 
-## Usage
+### Footage and folder classification
 
-### Build Structure
+| Item | Destination |
+| --- | --- |
+| Actual After Effects `SolidSource` | `SOLIDS` |
+| `mp4`, `mov`, `avi`, `wmv`, `mkv`, or `webm` | `02_ASSETS/FOOTAGE` |
+| Image named `packshot_*` | `02_ASSETS/PACKSHOTS` |
+| Image named `logo_*` | `02_ASSETS/LOGOS` |
+| Other `jpeg`, `jpg`, `png`, `gif`, `webp`, `svg`, `tiff`, `tif`, `raw`, `bmp`, `ai`, `eps`, `cdr`, or `psd` | `02_ASSETS/IMAGES` |
+| `mp3`, `aac`, `wav`, `flac`, `ogg`, or `alac` | `02_ASSETS/AUDIO` |
+| Unrecognized footage | `02_ASSETS/UNSORTED` |
+| Other loose root folder | `02_ASSETS/UNSORTED`, intact |
 
-On first use, select your final composition(s) or a folder of compositions, then click. If nothing (or something other than a composition or folder) is selected, you'll get a "Please choose the main composition" alert. The complete structure is created and the current full organisation workflow runs inside one undo step. When it finishes, the selection is restored to exactly what you started with.
+GuideKeeper specially preserves common imported-artwork groups:
 
-When a complete GuideKeeper structure already exists, Build Structure asks what to do:
+- A folder named `OVERLORD` (case-insensitive) moves intact to
+  `02_ASSETS/IMAGES`, including all descendants.
+- An Illustrator `.ai` item and a sibling `<basename> Layers` folder move
+  together to `02_ASSETS/IMAGES`.
+- A Photoshop `.psd` item and a sibling `<basename> Layers` folder move
+  together to `02_ASSETS/IMAGES`.
 
-- **Rebuild Structure** runs the full organisation workflow again and requires a valid comp/folder selection.
-- **Clean Up Root** runs the lightweight root-only maintenance workflow described below.
-- **Cancel** closes the dialog without mutating the project or opening an undo group.
+AI/PSD matching is case-insensitive and uses the imported file basename or the
+Project-item basename. A generic `Layers` folder, an unrelated `Other Layers`
+folder, or an unmatched AI/PSD item is not treated as a pair. Matched Layers
+folders and OVERLORD folders are preserved even when empty.
 
-**Compositions** are checked top to bottom, first match wins, case-insensitive substring match at the start of the name:
+## Clean Up Root
 
-| If the comp name starts with... | Goes to |
-|---|---|
-| *(was selected before clicking)* | `01_COMPS/MASTER` |
-| `guide_`, or contains "safe zone" / "safezone" / "safe-zone" | `03_GUIDES` |
-| `txt_` | `01_COMPS/PRECOMPS/TEXT` |
-| `packshot_` | `01_COMPS/PRECOMPS/PACKSHOTS` |
-| `logo_` | `01_COMPS/PRECOMPS/LOGOS` |
-| `bg_` | `01_COMPS/PRECOMPS/BACKGROUNDS` |
-| `vfx_` | `01_COMPS/PRECOMPS/FX` |
-| *(none of the above)* | `01_COMPS/PRECOMPS/UNSORTED` |
+Use **Clean Up Root** after importing material into a project that already has
+the complete GuideKeeper structure. It processes only items sitting directly
+at the true project root:
 
-`LANGUAGES` and `TRANSITIONS` are built but never auto-populated: language versions are usually named with a country code that's too open-ended to guess reliably, and TRANSITIONS shares its prefix with FX, so there's no automatic way to tell them apart.
+- loose comps and footage use the same classification rules as Build;
+- OVERLORD and matching AI/PSD import groups move intact to `IMAGES`;
+- other loose folders move intact to `02_ASSETS/UNSORTED`; and
+- the root documentation comps and structural folders remain in place.
 
-**Footage** follows this order:
+Content already inside any folder is not moved, reclassified, or flattened.
+This preserves organized work and makes cleanup safe to rerun. The action
+restores the Project-panel selection, refreshes workflow-folder and recursive
+MASTER comp labels, and uses one **Clean Up Root** undo group. Without a
+complete structure, it stops and asks the user to run Build Structure first.
 
-| If the footage... | Goes to |
-|---|---|
-| Uses After Effects' actual `SolidSource` type | `SOLIDS` |
-| Has a video extension (mp4, mov, avi, wmv, mkv, webm) | `02_ASSETS/FOOTAGE` |
-| Has an image extension and starts with `packshot_` | `02_ASSETS/PACKSHOTS` |
-| Has an image extension and starts with `logo_` | `02_ASSETS/LOGOS` |
-| Has an image extension, otherwise | `02_ASSETS/IMAGES` |
-| Has an audio extension (mp3, aac, wav, flac, ogg, alac) | `02_ASSETS/AUDIO` |
-| Matches none of the above | `02_ASSETS/UNSORTED` |
+## Labels
 
-Layered Illustrator and Photoshop imports are kept together. When an `.ai` or `.psd` footage item has a sibling folder named `<source basename> Layers` (case-insensitive), both move to `02_ASSETS/IMAGES`; the Layers folder and everything inside it stay intact. Matching uses the imported file or Project-item basename, so unrelated folders named only `Layers` are not coupled accidentally. An unmatched `.ai` or `.psd` item continues to use the normal image and prefix rules above.
+Project-panel item labels and current-comp layer labels are separate workflows.
 
-A folder named `OVERLORD` (case-insensitive) also moves intact to `02_ASSETS/IMAGES`, without inspecting or reorganising any of its children. These preserved OVERLORD and matched Layers folders are not removed by empty-folder cleanup.
+Build, Rebuild, and Clean Up Root apply these Project-panel labels:
 
-Other loose root folders move intact to `02_ASSETS/UNSORTED`; their children and hierarchy are not reorganised. A folder explicitly selected as a composition group instead moves to `01_COMPS/MASTER`, keeps its comp hierarchy, and has its footage extracted by the normal asset rules. Selected composition groups preserve any OVERLORD or matched AI/PSD group they encounter. The folders GuideKeeper builds are reused on repeat runs and are never removed when empty.
+- all fixed GuideKeeper folders use label 15 (Sandstone); and
+- every composition recursively below `01_COMPS/MASTER` uses label 1 (Red).
 
-After Build or Rebuild, the only items intentionally left at the true project root are the four structural folders and the `!_README` / `!_WORKFLOW_GUIDE` documentation comps.
+Nested user folders below MASTER keep their own labels. Comps outside MASTER,
+unrelated project items, and layers inside comps are not relabeled by those
+organization actions.
 
-### Project-panel labels
+**Colour Code Current Comp** changes every layer in the currently active comp.
+It does not process other comps or recurse into precomp contents.
 
-Build, Rebuild, and Clean Up Root apply After Effects Project-panel labels separately from layer labels:
+| Default label | Layer category | Detection |
+| --- | --- | --- |
+| Red | Text | `txt_` prefix |
+| Yellow | Audio | `Audio_` prefix |
+| Aqua | Light | After Effects layer type |
+| Pink | Shape | `shape_` prefix |
+| Lavender | Camera | After Effects layer type |
+| Peach | Packshot | `packshot_` prefix |
+| Sea Foam | Logo | `logo_` prefix |
+| Blue | Precomp | Layer source is a composition |
+| Green | Background/media | `bg_` prefix |
+| Purple | Adjustment | `adj_` prefix |
+| Orange | Null/controller | `null_` prefix |
+| Brown | Mask/matte | `msk_` prefix |
+| Fuchsia | VFX/transition | `vfx_` prefix |
+| Cyan | Guide/safe zone | `guide_` prefix |
+| None | Unclassified | No prefix or type rule matches |
 
-- Every GuideKeeper workflow folder listed in the structure above uses label 15 (Sandstone).
-- Every composition anywhere below `01_COMPS/MASTER`, including comps inside nested selected groups, uses label 1 (Red).
-- Unrelated folders and comps outside `MASTER` keep their existing labels.
+Prefix rules take precedence over light, camera, and precomp type fallbacks.
+Matching is case-insensitive.
 
-These operations do not alter layer labels inside compositions. Use **Colour Code Current Comp** explicitly for that separate current-comp workflow.
+The names above assume After Effects' default label palette. Label numbers are
+used by the script, while each user's label colors and names are local,
+customizable After Effects preferences. A customized palette can therefore
+display different colors for the same labels.
 
-### Clean Up Root
+## Reduce Project
 
-Use this after importing new material into a project that already has a complete GuideKeeper structure. It processes only items sitting loose at the true project root:
+**Reduce Project** selects a safe, explicit comp set before invoking After
+Effects' destructive native reduction command:
 
-- Loose comps and footage use the same naming and file-type classification rules as Build Structure.
-- Loose `OVERLORD` and matched AI/PSD Layers folders move intact to `02_ASSETS/IMAGES` with their paired source item where applicable.
-- Other loose folders move intact to `02_ASSETS/UNSORTED`; their children and hierarchy are not reorganised.
-- Structural folders, documentation comps, and items already inside folders are not moved or reorganised; only the workflow-folder and recursive `MASTER` comp labels described above are refreshed.
+1. With a valid GuideKeeper structure, it recursively discovers every comp
+   below `01_COMPS/MASTER`. The current Project-panel selection is ignored.
+2. Only when no valid complete structure exists, it falls back to the selected
+   comps and/or folders. Selected folders are searched recursively and duplicate
+   comps are removed.
+3. It displays the resolved comp count and names and asks for confirmation.
+4. After confirmation, it looks up the native **Reduce Project** command,
+   selects exactly the resolved comps, and executes it.
 
-The action is safe to rerun, preserves the current Project-panel selection, refreshes workflow-folder and recursive `MASTER` comp labels, and runs inside one **Clean Up Root** undo group. If no complete GuideKeeper structure exists, it asks you to run Build Structure first and makes no mutation.
+Canceling the confirmation preserves the original selection and invokes
+nothing. A valid structure with no MASTER comps stops with an explanation; it
+does not use a manual fallback. Empty manual selections, unsupported selected
+items, and selected folders containing no comps also stop before mutation.
+Native command lookup or execution errors are surfaced to the user.
 
-### Colour Code Current Comp
+Save a backup before reducing a project and inspect the confirmation list
+carefully. The command name is resolved through the After Effects host, so its
+availability can vary by host version or localization. If GuideKeeper reports
+that it cannot find **Reduce Project**, use an After Effects installation where
+that native command is available or run the native workflow manually.
 
-Operates only on whatever comp is currently open and active, not the whole project, and not recursively into nested precomps. Applies After Effects' native label colours:
+## Generated project documentation
 
-| Colour | Category | Detected by |
-|---|---|---|
-| Red | Text | name starts with `txt_` |
-| Yellow | Audio | name starts with `Audio_` |
-| Aqua | Light layer | layer type |
-| Pink | Shape | name starts with `shape_` |
-| Lavender | Camera layer | layer type |
-| Peach | Packshots | name starts with `packshot_` |
-| Sea Foam | Logos | name starts with `logo_` |
-| Blue | Precomp | layer's source is a composition |
-| Green | Footage / media | name starts with `bg_` |
-| Purple | Adjustment | name starts with `adj_` |
-| Orange | Nulls / controllers | name starts with `null_` |
-| Brown | Masks / mattes | name starts with `msk_` |
-| Fuchsia | VFX / transitions | name starts with `vfx_` |
-| Cyan | Guides / safe zones | name starts with `guide_` |
+Build and Rebuild ensure two production documentation comps exist at the true
+project root:
 
-Prefix matches are checked first; the light/camera/precomp rules only apply as a fallback when no prefix matches. A layer matching nothing is left with no colour on purpose, as a visible flag that it doesn't follow the naming convention rather than a silent pass.
+| Comp | Purpose |
+| --- | --- |
+| `!_README` | Project handoff template for project identity, creator, date, After Effects version, description, key comps, fonts, tools, issues, and notes |
+| `!_WORKFLOW_GUIDE` | Onboarding reference for text precomps, language rollout, Essential Properties, naming labels, and folder locations |
 
-One thing worth knowing: label colours and names are a local After Effects preference, not something stored in the project file. This script assumes the default palette (Red is label 1, Green is label 9, and so on); if a teammate has customised their own label names, the same script will show different colours on their machine. Sharing a label colour preset (Preferences > Labels > Export) alongside the script keeps everyone in sync.
+New documentation comps are 1250 x 2160, 10 seconds, and 25 fps. Each has a
+black full-frame solid, a white Arial body, and a 48 px Arial Bold header in
+`#00FFA3`. `!_README` uses a 24 px body; `!_WORKFLOW_GUIDE` uses a 15 px body.
+The background solid sources are stored in `SOLIDS`.
 
-### Reduce Project
+`!_README` automatically records the creation date in `YYYY-MM-DD` format and
+the current After Effects version. If either exact-name comp already exists,
+GuideKeeper moves it to the project root if needed and does not overwrite its
+dimensions, layers, styling, or user-edited content. Repeated builds therefore
+do not duplicate or reset the documentation.
 
-When a complete GuideKeeper structure exists, Reduce Project ignores unrelated Project-panel selections and recursively finds every composition below `01_COMPS/MASTER`, including comps inside nested group folders. If `MASTER` contains no compositions, the action explains what is missing and stops.
+## Customize conventions
 
-Without a complete GuideKeeper structure, select one or more compositions and/or folders containing compositions. Folder contents are searched recursively and duplicate comps are included only once. Empty selections, unsupported item types, and folders containing no comps are rejected without changing the project.
+GuideKeeper has no preferences UI, external configuration file, or runtime
+prefix editor. Customization means editing `GuideKeeper_AE.jsx` and
+redistributing that edited self-contained panel.
 
-Before any selection change or native command lookup, GuideKeeper shows the resolved comp names (with a count and abbreviated list for large sets) and asks for confirmation. Cancel leaves the existing selection untouched and invokes nothing. After confirmation, GuideKeeper looks up After Effects' native **Reduce Project** command, selects exactly the resolved comps, and invokes it. Command lookup and host execution failures are reported directly. The native modal command is not wrapped in an extra GuideKeeper undo group.
-
-## Customising the rules
-
-The prefix list and label colours both live in constants near the top of the script:
+The shipped case-insensitive prefixes are:
 
 ```javascript
 var PREFIX_TEXT       = "txt_";
@@ -184,36 +286,55 @@ var PREFIX_AUDIO      = "Audio_";
 var PREFIX_GUIDE      = "guide_";
 ```
 
-Edit these, and the corresponding folder names inside `buildStructure()`, to match your own team's convention, no other code changes needed.
+Edit those constants to change naming prefixes. Changing label numbers,
+extension lists, guide keywords, or folder names requires corresponding source
+and test updates; folder names in particular participate in both structure
+creation and complete-structure detection.
 
-## Compatibility
+## Contributing and testing
 
-Written in ExtendScript (`.jsx`), which is still the scripting language After Effects uses for the Scripts / ScriptUI Panels system.
-
-## Testing
-
-Run the automated regression suite with Node.js:
+The standard contributor and CI path is dependency-free and does not require
+After Effects or any other Adobe software. With a recent Node.js version, run:
 
 ```powershell
 npm test
 ```
 
-This standard contributor and CI path uses only Node's built-in test runner and `vm` module to execute the production `.jsx` file in a mocked After Effects host. It installs no dependencies, requires no Adobe software, and adds no runtime dependency to the panel.
+The suite uses only Node.js built-ins and a minimal mocked After Effects host to
+execute the production `.jsx`.
 
-### OPTIONAL After Effects release smoke check
+### OPTIONAL After Effects smoke checks
 
-**This check is non-blocking maintainer/release validation only. It is not a contributor prerequisite and is not required in CI.** When After Effects is available:
+**Real After Effects validation is optional, non-blocking maintainer/release
+validation. It is not a contributor prerequisite and is not required in CI.**
 
-- Open the panel as both a floating window and a docked panel; resize it across the row/column breakpoint.
-- Check that only **Build Structure** receives the `#00FFA3` primary treatment, then open, close, and reopen **?** Help without changing the project.
-- Run **Build Structure** on comps and a nested group folder; inspect the actual moves, preserved hierarchy, Project-panel labels, and selection restoration.
-- Import representative OVERLORD, layered Illustrator, and layered Photoshop groups; confirm Build/Rebuild and root cleanup keep each hierarchy and source/Layers pair intact under `02_ASSETS/IMAGES`.
-- Run Build Structure again and exercise **Rebuild Structure**, **Clean Up Root**, and **Cancel**; confirm Cancel is mutation-free and cleanup touches only loose root items.
-- Run **Clean Up Root** twice with loose comps, footage, and an intact folder; confirm organised content and folder children remain untouched.
-- Run **Colour Code Current Comp** on representative prefix, light, camera, precomp, and unmatched layers with the default label palette.
-- Undo each mutating action once and confirm the project returns to its prior state; also exercise invalid-selection and host error alerts.
-- Exercise **Reduce Project** with nested MASTER folders and manual folder selections; cancel GuideKeeper's confirmation once, then accept it and cancel the native dialog.
+When After Effects is available, useful release checks include:
+
+- opening and docking the panel, resizing between row and column layouts, and
+  confirming only Build Structure receives the accent treatment;
+- opening, reusing, closing, and reopening the **?** help palette;
+- building and rebuilding with loose comps and nested selected group folders;
+- checking OVERLORD and matching Illustrator/Photoshop import preservation;
+- running Clean Up Root twice and confirming organized folder content is
+  untouched;
+- checking Project-panel and current-comp labels with the default palette; and
+- canceling and accepting Reduce Project confirmation with nested MASTER comps.
+
+## Troubleshooting and limitations
+
+- GuideKeeper runs in the older ExtendScript host, not a browser or Node.js
+  runtime. Keep the installed `.jsx` self-contained.
+- If the panel is missing from **Window**, confirm the file is in the active
+  After Effects version's `ScriptUI Panels` directory, then restart the app.
+- If displayed label colors differ between machines, compare
+  **Preferences > Labels**; GuideKeeper assumes the default numeric palette.
+- Clean Up Root requires the complete fixed structure. Use Build Structure to
+  create or repair an incomplete one.
+- Build Structure and Clean Up Root are undo-grouped, but native Reduce Project
+  is destructive. Keep backups and use its confirmation prompt.
 
 ## License
 
-Not yet chosen. Add a `LICENSE` file before making the repo public so people know what they're allowed to do with this. MIT is the common choice for a small utility like this if you want others to freely use, modify, and redistribute it with attribution.
+No license has been selected and the repository does not contain a `LICENSE`
+file. No permission to use, modify, or redistribute the project is granted
+beyond applicable law until the maintainers add one.
