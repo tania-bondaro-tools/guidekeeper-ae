@@ -152,6 +152,26 @@ Edit these, and the corresponding folder names inside `buildStructure()`, to mat
 
 Written in ExtendScript (`.jsx`), which is still the scripting language After Effects uses for the Scripts / ScriptUI Panels system.
 
+## Testing
+
+Run the automated regression suite with Node.js:
+
+```powershell
+npm test
+```
+
+This standard contributor and CI path uses only Node's built-in test runner and `vm` module to execute the production `.jsx` file in a mocked After Effects host. It installs no dependencies, requires no Adobe software, and adds no runtime dependency to the panel.
+
+### OPTIONAL After Effects release smoke check
+
+**This check is non-blocking maintainer/release validation only. It is not a contributor prerequisite and is not required in CI.** When After Effects is available:
+
+- Open the panel as both a floating window and a docked panel; resize it across the row/column breakpoint.
+- Run **Build Structure** on comps and a nested group folder; inspect the actual moves, preserved hierarchy, Project-panel labels, selection restoration, and repeat-run reuse.
+- Run **Colour Code Layers** on representative prefix, light, camera, precomp, and unmatched layers with the default label palette.
+- Undo each mutating action once and confirm the project returns to its prior state; also exercise invalid-selection and host error alerts.
+- Open the native **Reduce Project** and **Collect Files** dialogs and cancel them without changing the test project.
+
 ## License
 
 Not yet chosen. Add a `LICENSE` file before making the repo public so people know what they're allowed to do with this. MIT is the common choice for a small utility like this if you want others to freely use, modify, and redistribute it with attribution.
