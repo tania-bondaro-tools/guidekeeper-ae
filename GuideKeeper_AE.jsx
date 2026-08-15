@@ -25,7 +25,8 @@
 //       UNSORTED         <- comps matching no prefix
 //   02_ASSETS/
 //     FOOTAGE            <- video files
-//     IMAGES             <- image files (unless packshot_/logo_ named)
+//     IMAGES             <- image files, intact OVERLORD folders, and
+//                           paired AI/PSD source + Layers folders
 //     AUDIO              <- audio files
 //     PACKSHOTS          <- image files named packshot_
 //     LOGOS              <- image files named logo_
@@ -211,6 +212,115 @@
         return false;
     }
 
+    function addUniqueItem(items, item) {
+        if (!itemIsInList(item, items)) items.push(item);
+    }
+
+    function addUniqueName(names, name) {
+        if (!name) return;
+        for (var i = 0; i < names.length; i++) {
+            if (names[i] === name) return;
+        }
+        names.push(name);
+    }
+
+    function normalizeAssetName(name) {
+        return (name || "").replace(/^\s+|\s+$/g, "").toLowerCase();
+    }
+
+    function importedAssetBaseName(name) {
+        var normalized = normalizeAssetName(name);
+        if (normalized.substring(normalized.length - 3) === ".ai") {
+            normalized = normalized.substring(0, normalized.length - 3);
+        } else if (normalized.substring(normalized.length - 4) === ".psd") {
+            normalized = normalized.substring(0, normalized.length - 4);
+        }
+        return normalizeAssetName(normalized);
+    }
+
+    function getImportedAssetBaseNames(item) {
+        var ext = getFileExtension(item);
+        if (ext !== "ai" && ext !== "psd") return [];
+
+        var baseNames = [];
+        addUniqueName(baseNames, importedAssetBaseName(item.name));
+
+        // AE normally keeps the source file name even if its Project item is
+        // renamed, so either basename can identify the sibling Layers folder.
+        try {
+            if (item.mainSource && item.mainSource.file) {
+                addUniqueName(baseNames, importedAssetBaseName(item.mainSource.file.name));
+            }
+        } catch (e) {}
+        return baseNames;
+    }
+
+    function isOverlordFolder(item) {
+        return item instanceof FolderItem &&
+            normalizeAssetName(item.name) === "overlord";
+    }
+
+    function folderMatchesImportedAsset(folder, baseNames) {
+        if (!(folder instanceof FolderItem)) return false;
+        var folderName = normalizeAssetName(folder.name);
+        for (var i = 0; i < baseNames.length; i++) {
+            if (folderName === baseNames[i] + " layers") return true;
+        }
+        return false;
+    }
+
+    // After Effects creates layered AI/PSD imports as sibling items such as
+    // "Logo.ai" and "Logo Layers". Only that exact basename relationship is
+    // preserved; a generic or unrelated Layers folder is not a companion.
+    function createAssetPreservationPlan(items) {
+        var plan = { imageItems: [], groupFolders: [] };
+        var folders = [];
+        var i;
+
+        for (i = 0; i < items.length; i++) {
+            if (!(items[i] instanceof FolderItem)) continue;
+            folders.push(items[i]);
+            if (isOverlordFolder(items[i])) {
+                addUniqueItem(plan.imageItems, items[i]);
+                addUniqueItem(plan.groupFolders, items[i]);
+            }
+        }
+
+        for (i = 0; i < items.length; i++) {
+            if (!(items[i] instanceof FootageItem)) continue;
+            var baseNames = getImportedAssetBaseNames(items[i]);
+            if (baseNames.length === 0) continue;
+
+            var matched = false;
+            for (var j = 0; j < folders.length; j++) {
+                if (!folderMatchesImportedAsset(folders[j], baseNames)) continue;
+                matched = true;
+                addUniqueItem(plan.imageItems, folders[j]);
+                addUniqueItem(plan.groupFolders, folders[j]);
+            }
+            if (matched) addUniqueItem(plan.imageItems, items[i]);
+        }
+        return plan;
+    }
+
+    function collectPreservedGroupFolders(proj) {
+        var containers = [proj.rootFolder];
+        var preserved = [];
+        var i;
+
+        for (i = 1; i <= proj.numItems; i++) {
+            var item = proj.item(i);
+            if (item instanceof FolderItem) containers.push(item);
+        }
+        for (i = 0; i < containers.length; i++) {
+            var plan = createAssetPreservationPlan(snapshotFolderItems(containers[i]));
+            for (var j = 0; j < plan.groupFolders.length; j++) {
+                addUniqueItem(preserved, plan.groupFolders[j]);
+            }
+        }
+        return preserved;
+    }
+
     function createProjectStructure(root) {
         var structure = {};
 
@@ -369,9 +479,12 @@
 
         function processFolder(currentFolder) {
             var children = snapshotFolderItems(currentFolder);
+            var preservationPlan = createAssetPreservationPlan(children);
             for (var i = 0; i < children.length; i++) {
                 var child = children[i];
-                if (child instanceof FootageItem) {
+                if (itemIsInList(child, preservationPlan.imageItems)) {
+                    child.parentFolder = structure.images;
+                } else if (child instanceof FootageItem) {
                     child.parentFolder = classifyFootageItem(child, structure);
                 } else if (child instanceof CompItem) {
                     child.label = 1;
@@ -397,12 +510,18 @@
         return items;
     }
 
-    function processRootItems(items, selectedCompIds, structure, documentationComps, sortLooseFolders) {
+    function processRootItems(items, selectedCompIds, structure, documentationComps, sortLooseFolders, preservationPlan) {
+        var plan = preservationPlan || createAssetPreservationPlan(items);
         for (var i = items.length - 1; i >= 0; i--) {
             var item = items[i];
 
             if (itemIsInList(item, documentationComps)) continue;
             if (isStructuralItem(item, structure)) continue;
+            if (itemIsInList(item, plan.imageItems)) {
+                item.parentFolder = structure.images;
+                if (item instanceof FolderItem) item.label = 15;
+                continue;
+            }
             if (item instanceof FolderItem) {
                 if (sortLooseFolders) {
                     item.parentFolder = classifyProjectItem(item, selectedCompIds, structure);
@@ -560,31 +679,43 @@
             }
             var documentationComps = createDocumentationComps(root, masterComp);
 
+            // Plan root-level preserved groups before selected folders move.
+            // This also prevents a selected Layers/OVERLORD folder from being
+            // treated as a composition group and relocated into MASTER.
+            var snapshot = snapshotRootItems(proj, root);
+            var rootPreservationPlan = createAssetPreservationPlan(snapshot);
+
             // Process any selected group folders FIRST, so the main sort
             // loop below (root-level items only) never encounters them,
             // they've already been relocated into MASTER by this point.
             for (var gf = 0; gf < selectedGroupFolders.length; gf++) {
                 var groupFolder = selectedGroupFolders[gf];
                 if (isStructuralItem(groupFolder, structure)) continue;
+                if (itemIsInList(groupFolder, rootPreservationPlan.imageItems)) {
+                    groupFolder.parentFolder = structure.images;
+                    continue;
+                }
                 processSelectedGroupFolder(groupFolder, structure);
                 groupFolder.parentFolder = structure.master;
             }
-
-            // Snapshot only items currently sitting loose at the TRUE
-            // ROOT, taken before moving anything so index-shifting doesn't
-            // affect this loop. Anything already inside a folder (a user's
-            // own, the tool's own, or a just-relocated group folder) is
-            // left alone, so re-running this never re-sorts something a
-            // second time or undoes group-folder processing above.
-            var snapshot = snapshotRootItems(proj, root);
 
             // Sort items. Processed in reverse (see header note on
             // ordering): assuming After Effects inserts reparented items
             // at the top of their destination folder, reverse processing
             // should keep the final order close to the original.
-            processRootItems(snapshot, selectedCompIds, structure, documentationComps, false);
+            processRootItems(
+                snapshot,
+                selectedCompIds,
+                structure,
+                documentationComps,
+                false,
+                rootPreservationPlan
+            );
 
-            removeEmptyUserFolders(structure.folders);
+            removeEmptyUserFolders(
+                structure.folders,
+                collectPreservedGroupFolders(proj)
+            );
 
             // Colour every folder Sandstone (structural and pre-existing
             // alike) so folders are visually distinct from comps/footage
@@ -644,7 +775,7 @@
     // an empty folder can turn up at any depth once its contents are
     // extracted.
 
-    function removeEmptyUserFolders(structural) {
+    function removeEmptyUserFolders(structural, preservedGroups) {
         var changed = true;
         while (changed) {
             changed = false;
@@ -656,8 +787,10 @@
                 var folder = snap[j];
                 if (!(folder instanceof FolderItem)) continue;
                 if (itemIsInList(folder, structural)) continue; // keep our structure
+                if (itemIsInList(folder, preservedGroups)) continue;
                 if (folder.numItems === 0) {
-                    try { folder.remove(); changed = true; } catch (e) {}
+                    folder.remove();
+                    changed = true;
                 }
             }
         }

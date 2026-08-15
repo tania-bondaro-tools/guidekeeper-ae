@@ -165,6 +165,82 @@ test("Build Structure processes a selected group folder while preserving its hie
     ]);
 });
 
+test("Build and Rebuild preserve root OVERLORD and matched AI/PSD import groups", function () {
+    var h = createHarness();
+    var master = h.addComp("Master");
+    var overlord = h.addFolder("oVeRlOrD");
+    var overlordNested = h.addFolder("Nested Artwork", overlord);
+    var overlordAsset = h.addFootage("vector.ai", overlordNested);
+    var illustrator = h.addFootage("Logo.ai");
+    var illustratorLayers = h.addFolder("lOgO lAyErS");
+    var illustratorNested = h.addFolder("Layer Set", illustratorLayers);
+    var illustratorAsset = h.addFootage("Logo Shape.ai", illustratorNested);
+    var photoshop = h.addFootage("Renamed Character", null, {
+        fileName: "Character.PSD"
+    });
+    var photoshopLayers = h.addFolder("CHARACTER LAYERS");
+    var genericLayers = h.addFolder("Layers");
+    var genericChild = h.addComp("Generic Layer Comp", genericLayers);
+    var unrelatedLayers = h.addFolder("Other Layers");
+    var unrelatedChild = h.addFootage("other.png", unrelatedLayers);
+    var missingCompanion = h.addFootage("logo_Solo.AI");
+    h.selectOnly([master]);
+
+    h.click("Build Structure");
+
+    assert.equal(h.pathOf(overlord), "02_ASSETS/IMAGES/oVeRlOrD");
+    assert.equal(h.pathOf(overlordNested), "02_ASSETS/IMAGES/oVeRlOrD/Nested Artwork");
+    assert.equal(h.pathOf(overlordAsset), "02_ASSETS/IMAGES/oVeRlOrD/Nested Artwork/vector.ai");
+    assert.equal(h.pathOf(illustrator), "02_ASSETS/IMAGES/Logo.ai");
+    assert.equal(h.pathOf(illustratorLayers), "02_ASSETS/IMAGES/lOgO lAyErS");
+    assert.equal(h.pathOf(illustratorNested), "02_ASSETS/IMAGES/lOgO lAyErS/Layer Set");
+    assert.equal(h.pathOf(illustratorAsset), "02_ASSETS/IMAGES/lOgO lAyErS/Layer Set/Logo Shape.ai");
+    assert.equal(h.pathOf(photoshop), "02_ASSETS/IMAGES/Renamed Character");
+    assert.equal(h.pathOf(photoshopLayers), "02_ASSETS/IMAGES/CHARACTER LAYERS");
+    assert.equal(photoshopLayers.numItems, 0, "an empty matched Layers folder is preserved");
+    assert.equal(h.pathOf(genericLayers), "Layers");
+    assert.equal(h.pathOf(genericChild), "Layers/Generic Layer Comp");
+    assert.equal(h.pathOf(unrelatedLayers), "Other Layers");
+    assert.equal(h.pathOf(unrelatedChild), "Other Layers/other.png");
+    assert.equal(h.pathOf(missingCompanion), "02_ASSETS/LOGOS/logo_Solo.AI");
+
+    var firstRunPaths = h.project._items.map(h.pathOf).sort();
+    h.chooseDialog("Rebuild Structure");
+    h.click("Build Structure");
+
+    assert.deepEqual(h.project._items.map(h.pathOf).sort(), firstRunPaths);
+    assert.equal(h.pathOf(overlordAsset), "02_ASSETS/IMAGES/oVeRlOrD/Nested Artwork/vector.ai");
+    assert.equal(h.pathOf(illustratorAsset), "02_ASSETS/IMAGES/lOgO lAyErS/Layer Set/Logo Shape.ai");
+    assert.equal(h.pathOf(photoshopLayers), "02_ASSETS/IMAGES/CHARACTER LAYERS");
+});
+
+test("Rebuild preserves asset groups encountered inside a selected composition folder", function () {
+    var h = createHarness();
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+    h.click("Build Structure");
+
+    var selectedGroup = h.addFolder("DELIVERABLE_GROUP");
+    var groupedComp = h.addComp("Grouped Comp", selectedGroup);
+    var overlord = h.addFolder("OVERLORD", selectedGroup);
+    var overlordChild = h.addFootage("keep.psd", overlord);
+    var illustrator = h.addFootage("Icons.AI", selectedGroup);
+    var illustratorLayers = h.addFolder("icons layers", selectedGroup);
+    var layersChild = h.addFootage("Icon 1.ai", illustratorLayers);
+    h.selectOnly([selectedGroup]);
+
+    h.chooseDialog("Rebuild Structure");
+    h.click("Build Structure");
+
+    assert.equal(h.pathOf(selectedGroup), "01_COMPS/MASTER/DELIVERABLE_GROUP");
+    assert.equal(h.pathOf(groupedComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Grouped Comp");
+    assert.equal(h.pathOf(overlord), "02_ASSETS/IMAGES/OVERLORD");
+    assert.equal(h.pathOf(overlordChild), "02_ASSETS/IMAGES/OVERLORD/keep.psd");
+    assert.equal(h.pathOf(illustrator), "02_ASSETS/IMAGES/Icons.AI");
+    assert.equal(h.pathOf(illustratorLayers), "02_ASSETS/IMAGES/icons layers");
+    assert.equal(h.pathOf(layersChild), "02_ASSETS/IMAGES/icons layers/Icon 1.ai");
+});
+
 test("Build Structure never relocates a selected folder that belongs to its own structure", function () {
     var h = createHarness();
     var comps = h.addFolder("01_COMPS");
@@ -270,6 +346,67 @@ test("Clean up the root sorts only loose root items and is safe to rerun", funct
         { type: "begin", name: "Clean Up Root" },
         { type: "end" }
     ]);
+});
+
+test("Clean up the root preserves imported groups without crossing organization boundaries", function () {
+    var h = createHarness();
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+    h.click("Build Structure");
+
+    var images = h.findFolderByPath("02_ASSETS/IMAGES");
+    var organizedSource = h.addFootage("Organized.psd", images);
+    var organizedLayers = h.addFolder("Organized Layers", images);
+    var organizedChild = h.addFootage("organized child.png", organizedLayers);
+    organizedSource.label = 4;
+    organizedLayers.label = 6;
+
+    var overlord = h.addFolder("overlord");
+    var illustrator = h.addFootage("Campaign.AI");
+    var illustratorLayers = h.addFolder("campaign LAYERS");
+    var illustratorChild = h.addFootage("Campaign 1.ai", illustratorLayers);
+    var photoshop = h.addFootage("Character.psd");
+    var photoshopLayers = h.addFolder("Character Layers");
+    var photoshopNested = h.addFolder("Nested", photoshopLayers);
+    var photoshopChild = h.addFootage("Character 1.psd", photoshopNested);
+    var genericLayers = h.addFolder("Layers");
+    var genericChild = h.addComp("Loose Comp", genericLayers);
+    var missingCompanion = h.addFootage("logo_Unpaired.psd");
+    var importBatch = h.addFolder("IMPORT_BATCH");
+    var nestedSource = h.addFootage("Nested.ai", importBatch);
+    var nestedLayers = h.addFolder("Nested Layers", importBatch);
+    var nestedChild = h.addFootage("Nested 1.ai", nestedLayers);
+
+    h.click("Clean up the root");
+
+    assert.equal(h.pathOf(overlord), "02_ASSETS/IMAGES/overlord");
+    assert.equal(overlord.numItems, 0, "an empty OVERLORD folder remains intact");
+    assert.equal(h.pathOf(illustrator), "02_ASSETS/IMAGES/Campaign.AI");
+    assert.equal(h.pathOf(illustratorLayers), "02_ASSETS/IMAGES/campaign LAYERS");
+    assert.equal(h.pathOf(illustratorChild), "02_ASSETS/IMAGES/campaign LAYERS/Campaign 1.ai");
+    assert.equal(h.pathOf(photoshop), "02_ASSETS/IMAGES/Character.psd");
+    assert.equal(h.pathOf(photoshopLayers), "02_ASSETS/IMAGES/Character Layers");
+    assert.equal(h.pathOf(photoshopNested), "02_ASSETS/IMAGES/Character Layers/Nested");
+    assert.equal(h.pathOf(photoshopChild), "02_ASSETS/IMAGES/Character Layers/Nested/Character 1.psd");
+    assert.equal(h.pathOf(genericLayers), "02_ASSETS/UNSORTED/Layers");
+    assert.equal(h.pathOf(genericChild), "02_ASSETS/UNSORTED/Layers/Loose Comp");
+    assert.equal(h.pathOf(missingCompanion), "02_ASSETS/LOGOS/logo_Unpaired.psd");
+    assert.equal(h.pathOf(importBatch), "02_ASSETS/UNSORTED/IMPORT_BATCH");
+    assert.equal(h.pathOf(nestedSource), "02_ASSETS/UNSORTED/IMPORT_BATCH/Nested.ai");
+    assert.equal(h.pathOf(nestedLayers), "02_ASSETS/UNSORTED/IMPORT_BATCH/Nested Layers");
+    assert.equal(h.pathOf(nestedChild), "02_ASSETS/UNSORTED/IMPORT_BATCH/Nested Layers/Nested 1.ai");
+    assert.equal(h.pathOf(organizedSource), "02_ASSETS/IMAGES/Organized.psd");
+    assert.equal(h.pathOf(organizedLayers), "02_ASSETS/IMAGES/Organized Layers");
+    assert.equal(h.pathOf(organizedChild), "02_ASSETS/IMAGES/Organized Layers/organized child.png");
+    assert.equal(organizedSource.label, 4);
+    assert.equal(organizedLayers.label, 6);
+
+    var firstRunPaths = h.project._items.map(h.pathOf).sort();
+    h.click("Clean up the root");
+
+    assert.deepEqual(h.project._items.map(h.pathOf).sort(), firstRunPaths);
+    assert.equal(organizedSource.label, 4);
+    assert.equal(organizedLayers.label, 6);
 });
 
 test("existing-structure Clean Up Root choice uses root-only maintenance", function () {
