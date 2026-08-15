@@ -179,6 +179,11 @@
     // Extra fragments treated as guide/safe-zone content alongside guide_
     var GUIDE_EXTRA_KEYWORDS = ["safe zone", "safezone", "safe-zone"];
 
+    var VIDEO_EXTENSIONS = { mp4:1, mov:1, avi:1, wmv:1, mkv:1, webm:1 };
+    var IMAGE_EXTENSIONS = { jpeg:1, jpg:1, png:1, gif:1, webp:1, svg:1,
+                             tiff:1, tif:1, raw:1, bmp:1, ai:1, eps:1, cdr:1, psd:1 };
+    var SOUND_EXTENSIONS = { mp3:1, aac:1, wav:1, flac:1, ogg:1, alac:1 };
+
     function nameStartsWith(name, prefix) {
         var lower = (name || "").toLowerCase();
         return lower.indexOf(prefix.toLowerCase()) === 0;
@@ -190,6 +195,213 @@
             if (lower.indexOf(keywords[i].toLowerCase()) !== -1) return true;
         }
         return false;
+    }
+
+    function itemIsInList(item, items) {
+        for (var i = 0; i < items.length; i++) {
+            if (item === items[i]) return true;
+        }
+        return false;
+    }
+
+    function createProjectStructure(root) {
+        var structure = {};
+
+        structure.comps       = findOrCreate(root, "01_COMPS");
+        structure.master      = findOrCreate(structure.comps, "MASTER");
+        structure.languages   = findOrCreate(structure.comps, "LANGUAGES");
+        structure.precomps    = findOrCreate(structure.comps, "PRECOMPS");
+        structure.pcText      = findOrCreate(structure.precomps, "TEXT");
+        structure.pcPackshots = findOrCreate(structure.precomps, "PACKSHOTS");
+        structure.pcLogos     = findOrCreate(structure.precomps, "LOGOS");
+        structure.pcTrans     = findOrCreate(structure.precomps, "TRANSITIONS");
+        structure.pcBg        = findOrCreate(structure.precomps, "BACKGROUNDS");
+        structure.pcFx        = findOrCreate(structure.precomps, "FX");
+        structure.pcUnsorted  = findOrCreate(structure.precomps, "UNSORTED");
+
+        structure.assets      = findOrCreate(root, "02_ASSETS");
+        structure.footage     = findOrCreate(structure.assets, "FOOTAGE");
+        structure.images      = findOrCreate(structure.assets, "IMAGES");
+        structure.audio       = findOrCreate(structure.assets, "AUDIO");
+        structure.asPackshots = findOrCreate(structure.assets, "PACKSHOTS");
+        structure.asLogos     = findOrCreate(structure.assets, "LOGOS");
+        structure.asUnsorted  = findOrCreate(structure.assets, "UNSORTED");
+
+        structure.guides = findOrCreate(root, "03_GUIDES");
+        structure.solids = findOrCreate(root, "SOLIDS");
+
+        structure.folders = [
+            structure.comps, structure.master, structure.languages, structure.precomps,
+            structure.pcText, structure.pcPackshots, structure.pcLogos,
+            structure.pcTrans, structure.pcBg, structure.pcFx, structure.pcUnsorted,
+            structure.assets, structure.footage, structure.images, structure.audio,
+            structure.asPackshots, structure.asLogos, structure.asUnsorted,
+            structure.guides, structure.solids
+        ];
+
+        return structure;
+    }
+
+    function isStructuralItem(item, structure) {
+        return itemIsInList(item, structure.folders);
+    }
+
+    function classifyFootageItem(item, structure) {
+        if (item.mainSource instanceof SolidSource) return structure.solids;
+
+        var ext = getFileExtension(item);
+        if (VIDEO_EXTENSIONS[ext]) return structure.footage;
+        if (IMAGE_EXTENSIONS[ext]) {
+            if (nameStartsWith(item.name, PREFIX_PACKSHOT)) return structure.asPackshots;
+            if (nameStartsWith(item.name, PREFIX_LOGO))     return structure.asLogos;
+            return structure.images;
+        }
+        if (SOUND_EXTENSIONS[ext]) return structure.audio;
+        return structure.asUnsorted;
+    }
+
+    function classifyCompItem(item, selectedCompIds, structure) {
+        if (selectedCompIds[item.id]) {
+            return structure.master;
+        }
+        if (nameStartsWith(item.name, PREFIX_GUIDE) || nameContainsAny(item.name, GUIDE_EXTRA_KEYWORDS)) {
+            return structure.guides;
+        }
+        if (nameStartsWith(item.name, PREFIX_TEXT)) {
+            return structure.pcText;
+        }
+        if (nameStartsWith(item.name, PREFIX_PACKSHOT)) {
+            return structure.pcPackshots;
+        }
+        if (nameStartsWith(item.name, PREFIX_LOGO)) {
+            return structure.pcLogos;
+        }
+        if (nameStartsWith(item.name, PREFIX_BACKGROUND)) {
+            return structure.pcBg;
+        }
+        if (nameStartsWith(item.name, PREFIX_VFX)) {
+            return structure.pcFx;
+        }
+        return structure.pcUnsorted;
+    }
+
+    function classifyProjectItem(item, selectedCompIds, structure) {
+        if (item instanceof CompItem) {
+            return classifyCompItem(item, selectedCompIds, structure);
+        }
+        if (item instanceof FootageItem) {
+            return classifyFootageItem(item, structure);
+        }
+        return structure.asUnsorted;
+    }
+
+    function snapshotFolderItems(folder) {
+        var items = [];
+        for (var i = 1; i <= folder.numItems; i++) {
+            items.push(folder.item(i));
+        }
+        return items;
+    }
+
+    // Returns every comp discovered in the selected group hierarchy. The
+    // caller currently needs only the mutations, while later operations can
+    // reuse the discovery result without walking the hierarchy differently.
+    function processSelectedGroupFolder(folder, structure) {
+        var masterComps = [];
+
+        function processFolder(currentFolder) {
+            var children = snapshotFolderItems(currentFolder);
+            for (var i = 0; i < children.length; i++) {
+                var child = children[i];
+                if (child instanceof FootageItem) {
+                    try { child.parentFolder = classifyFootageItem(child, structure); } catch (e) {}
+                } else if (child instanceof CompItem) {
+                    child.label = 1;
+                    masterComps.push(child);
+                } else if (child instanceof FolderItem) {
+                    processFolder(child);
+                }
+            }
+        }
+
+        processFolder(folder);
+        return masterComps;
+    }
+
+    function snapshotRootItems(proj, root) {
+        var items = [];
+        for (var i = 1; i <= proj.numItems; i++) {
+            var item = proj.item(i);
+            if (item.parentFolder === root) {
+                items.push(item);
+            }
+        }
+        return items;
+    }
+
+    function processRootItems(items, selectedCompIds, structure, documentationComps) {
+        for (var i = items.length - 1; i >= 0; i--) {
+            var item = items[i];
+
+            if (itemIsInList(item, documentationComps)) continue;
+            if (isStructuralItem(item, structure)) continue;
+            if (item instanceof FolderItem) continue;
+
+            var target = classifyProjectItem(item, selectedCompIds, structure);
+            if (item instanceof CompItem && selectedCompIds[item.id]) {
+                item.label = 1;
+            }
+            try { item.parentFolder = target; } catch (e) { /* skip unwritable items */ }
+        }
+    }
+
+    function createDocumentationComps(root, masterComp) {
+        var w   = masterComp ? masterComp.width     : 1920;
+        var h   = masterComp ? masterComp.height    : 1080;
+        var dur = masterComp ? masterComp.duration  : 10;
+        var fr  = masterComp ? masterComp.frameRate : 25;
+
+        var monthNames = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+        var now = new Date();
+        var dateStamp = monthNames[now.getMonth()] + now.getFullYear();
+
+        var readmeText =
+            "PROJECT: [Job number]_[CLIENT]_[PROJECT]\r" +
+            "CREATED BY: [Name/Agency] | DATE: " + dateStamp + " | AE VERSION: " + app.version + "\r" +
+            "DESCRIPTION: [What the project delivers]\r" +
+            "KEY COMPS: [List deliverables]\r" +
+            "FONTS: [All fonts used in this project]\r" +
+            "PLUGINS / SCRIPTS: [Name + version, provided in project folder]\r" +
+            "KNOWN ISSUES: [Or None] | NOTES: [What to do, what not to touch]";
+        var readmeComp = findOrCreateComp("!_README", w, h, dur, fr, readmeText);
+        readmeComp.parentFolder = root;
+
+        var guideText =
+            "WORKFLOW GUIDE\r" +
+            "(Replace with a visual summary: folder structure, multilingual rollout, where to find things.)";
+        var workflowGuideComp = findOrCreateComp("!_WORKFLOW_GUIDE", w, h, dur, fr, guideText);
+        workflowGuideComp.parentFolder = root;
+
+        return [readmeComp, workflowGuideComp];
+    }
+
+    function labelProjectFolders(proj) {
+        for (var i = 1; i <= proj.numItems; i++) {
+            var item = proj.item(i);
+            if (item instanceof FolderItem) {
+                item.label = 15;
+            }
+        }
+    }
+
+    function restoreProjectSelection(proj, selection) {
+        var currentSelection = proj.selection;
+        for (var i = 0; i < currentSelection.length; i++) {
+            currentSelection[i].selected = false;
+        }
+        for (var j = 0; j < selection.length; j++) {
+            selection[j].selected = true;
+        }
     }
 
     // ── Button 1: Build Structure ─────────────────────────────────────
@@ -212,128 +424,22 @@
         app.beginUndoGroup("Build Structure");
         try {
             var root = proj.rootFolder;
+            var structure = createProjectStructure(root);
 
-            // Folders
-            var fComps       = findOrCreate(root, "01_COMPS");
-            var fMaster      = findOrCreate(fComps, "MASTER");
-            var fLanguages   = findOrCreate(fComps, "LANGUAGES");   // manual only
-            var fPrecomps    = findOrCreate(fComps, "PRECOMPS");
-            var fPcText      = findOrCreate(fPrecomps, "TEXT");
-            var fPcPackshots = findOrCreate(fPrecomps, "PACKSHOTS");
-            var fPcLogos     = findOrCreate(fPrecomps, "LOGOS");
-            var fPcTrans     = findOrCreate(fPrecomps, "TRANSITIONS"); // manual only
-            var fPcBg        = findOrCreate(fPrecomps, "BACKGROUNDS");
-            var fPcFx        = findOrCreate(fPrecomps, "FX");
-            var fPcUnsorted  = findOrCreate(fPrecomps, "UNSORTED");
-
-            var fAssets      = findOrCreate(root, "02_ASSETS");
-            var fFootage     = findOrCreate(fAssets, "FOOTAGE");
-            var fImages      = findOrCreate(fAssets, "IMAGES");
-            var fAudio       = findOrCreate(fAssets, "AUDIO");
-            var fAsPackshots = findOrCreate(fAssets, "PACKSHOTS");
-            var fAsLogos     = findOrCreate(fAssets, "LOGOS");
-            var fAsUnsorted  = findOrCreate(fAssets, "UNSORTED");
-
-            var fGuides = findOrCreate(root, "03_GUIDES");
-            var fSolids = findOrCreate(root, "SOLIDS");
-
-            var structuralFolders = [
-                fComps, fMaster, fLanguages, fPrecomps,
-                fPcText, fPcPackshots, fPcLogos, fPcTrans, fPcBg, fPcFx, fPcUnsorted,
-                fAssets, fFootage, fImages, fAudio, fAsPackshots, fAsLogos, fAsUnsorted,
-                fGuides, fSolids
-            ];
-
-            // File-type lookup tables (O(1) check)
-            var videoExts = { mp4:1, mov:1, avi:1, wmv:1, mkv:1, webm:1 };
-            var imageExts = { jpeg:1, jpg:1, png:1, gif:1, webp:1, svg:1,
-                              tiff:1, tif:1, raw:1, bmp:1, ai:1, eps:1, cdr:1, psd:1 };
-            var soundExts = { mp3:1, aac:1, wav:1, flac:1, ogg:1, alac:1 };
-
-            // Classify one footage item and return its target folder.
-            // Shared by the main sort loop and by group-folder extraction.
-            function classifyFootage(item) {
-                if (item.mainSource instanceof SolidSource) return fSolids;
-                var ext = getFileExtension(item);
-                if (videoExts[ext]) return fFootage;
-                if (imageExts[ext]) {
-                    if (nameStartsWith(item.name, PREFIX_PACKSHOT)) return fAsPackshots;
-                    if (nameStartsWith(item.name, PREFIX_LOGO))     return fAsLogos;
-                    return fImages;
-                }
-                if (soundExts[ext]) return fAudio;
-                return fAsUnsorted; // unrecognised, and not a solid
-            }
-
-            // Recursively walk a selected "group" folder: pull any footage
-            // out to its proper asset folder, mark any comp Red (it stays
-            // in place), and recurse into nested subfolders. The folder
-            // itself gets relocated into MASTER afterward, by the caller.
-            function processGroupFolder(folder) {
-                var children = [];
-                for (var c = 1; c <= folder.numItems; c++) {
-                    children.push(folder.item(c));
-                }
-                for (var c2 = 0; c2 < children.length; c2++) {
-                    var child = children[c2];
-                    if (child instanceof FootageItem) {
-                        try { child.parentFolder = classifyFootage(child); } catch (e) {}
-                    } else if (child instanceof CompItem) {
-                        child.label = 1; // Red
-                    } else if (child instanceof FolderItem) {
-                        processGroupFolder(child);
-                    }
-                }
-            }
-
-            // !_README and !_WORKFLOW_GUIDE templates. Sized to whichever
-            // selected comp is found first; if only folders were selected,
-            // fall back to a plain HD/10s/25fps default. Reused as-is,
-            // never overwritten, on repeat runs. Always forced to the true
-            // root regardless of where After Effects would otherwise drop
-            // a newly created comp.
             var masterComp = null;
             for (var mc = 0; mc < sel.length; mc++) {
                 if (sel[mc] instanceof CompItem) { masterComp = sel[mc]; break; }
             }
-            var w   = masterComp ? masterComp.width     : 1920;
-            var h   = masterComp ? masterComp.height    : 1080;
-            var dur = masterComp ? masterComp.duration  : 10;
-            var fr  = masterComp ? masterComp.frameRate : 25;
-
-            var monthNames = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
-            var now = new Date();
-            var dateStamp = monthNames[now.getMonth()] + now.getFullYear();
-
-            var readmeText =
-                "PROJECT: [Job number]_[CLIENT]_[PROJECT]\r" +
-                "CREATED BY: [Name/Agency] | DATE: " + dateStamp + " | AE VERSION: " + app.version + "\r" +
-                "DESCRIPTION: [What the project delivers]\r" +
-                "KEY COMPS: [List deliverables]\r" +
-                "FONTS: [All fonts used in this project]\r" +
-                "PLUGINS / SCRIPTS: [Name + version, provided in project folder]\r" +
-                "KNOWN ISSUES: [Or None] | NOTES: [What to do, what not to touch]";
-            var readmeComp = findOrCreateComp("!_README", w, h, dur, fr, readmeText);
-            readmeComp.parentFolder = root;
-
-            var guideText =
-                "WORKFLOW GUIDE\r" +
-                "(Replace with a visual summary: folder structure, multilingual rollout, where to find things.)";
-            var workflowGuideComp = findOrCreateComp("!_WORKFLOW_GUIDE", w, h, dur, fr, guideText);
-            workflowGuideComp.parentFolder = root;
+            var documentationComps = createDocumentationComps(root, masterComp);
 
             // Process any selected group folders FIRST, so the main sort
             // loop below (root-level items only) never encounters them,
             // they've already been relocated into MASTER by this point.
             for (var gf = 0; gf < selectedGroupFolders.length; gf++) {
                 var groupFolder = selectedGroupFolders[gf];
-                var isOwnStructuralFolder = false;
-                for (var sf = 0; sf < structuralFolders.length; sf++) {
-                    if (groupFolder === structuralFolders[sf]) { isOwnStructuralFolder = true; break; }
-                }
-                if (isOwnStructuralFolder) continue; // never nest a structural folder into itself
-                processGroupFolder(groupFolder);
-                try { groupFolder.parentFolder = fMaster; } catch (e) {}
+                if (isStructuralItem(groupFolder, structure)) continue;
+                processSelectedGroupFolder(groupFolder, structure);
+                try { groupFolder.parentFolder = structure.master; } catch (e) {}
             }
 
             // Snapshot only items currently sitting loose at the TRUE
@@ -342,88 +448,31 @@
             // own, the tool's own, or a just-relocated group folder) is
             // left alone, so re-running this never re-sorts something a
             // second time or undoes group-folder processing above.
-            var snapshot = [];
-            for (var i = 1; i <= proj.numItems; i++) {
-                var candidate = proj.item(i);
-                if (candidate.parentFolder === root) {
-                    snapshot.push(candidate);
-                }
-            }
+            var snapshot = snapshotRootItems(proj, root);
 
             // Sort items. Processed in reverse (see header note on
             // ordering): assuming After Effects inserts reparented items
             // at the top of their destination folder, reverse processing
             // should keep the final order close to the original.
-            for (var j = snapshot.length - 1; j >= 0; j--) {
-                var item = snapshot[j];
+            processRootItems(snapshot, selectedCompIds, structure, documentationComps);
 
-                // Never move the doc comps themselves
-                if (item === readmeComp || item === workflowGuideComp) continue;
-
-                var isStructural = false;
-                for (var k = 0; k < structuralFolders.length; k++) {
-                    if (item === structuralFolders[k]) { isStructural = true; break; }
-                }
-                if (isStructural) continue;
-
-                if (item instanceof FolderItem) continue; // leave pre-existing user folders alone
-
-                var target;
-                if (item instanceof CompItem) {
-                    if (selectedCompIds[item.id]) {
-                        target = fMaster;
-                        item.label = 1; // Red
-                    } else if (nameStartsWith(item.name, PREFIX_GUIDE) || nameContainsAny(item.name, GUIDE_EXTRA_KEYWORDS)) {
-                        target = fGuides;
-                    } else if (nameStartsWith(item.name, PREFIX_TEXT)) {
-                        target = fPcText;
-                    } else if (nameStartsWith(item.name, PREFIX_PACKSHOT)) {
-                        target = fPcPackshots;
-                    } else if (nameStartsWith(item.name, PREFIX_LOGO)) {
-                        target = fPcLogos;
-                    } else if (nameStartsWith(item.name, PREFIX_BACKGROUND)) {
-                        target = fPcBg;
-                    } else if (nameStartsWith(item.name, PREFIX_VFX)) {
-                        target = fPcFx;
-                    } else {
-                        target = fPcUnsorted; // unmatched comps
-                    }
-                } else if (item instanceof FootageItem) {
-                    target = classifyFootage(item);
-                } else {
-                    target = fAsUnsorted;
-                }
-
-                try { item.parentFolder = target; } catch (e) { /* skip unwritable items */ }
-            }
-
-            removeEmptyUserFolders(structuralFolders);
+            removeEmptyUserFolders(structure.folders);
 
             // Colour every folder Sandstone (structural and pre-existing
             // alike) so folders are visually distinct from comps/footage
             // at a glance in the Project panel.
-            for (var f = 1; f <= proj.numItems; f++) {
-                var maybeFolder = proj.item(f);
-                if (maybeFolder instanceof FolderItem) {
-                    maybeFolder.label = 15; // Sandstone
-                }
-            }
+            labelProjectFolders(proj);
 
             // Reveal: clear only whatever is currently selected, not the
             // whole project (that was expanding every folder as a side
             // effect), then reselect exactly what was chosen at the start.
-            var currentSel = proj.selection;
-            for (var m = 0; m < currentSel.length; m++) {
-                currentSel[m].selected = false;
-            }
-            for (var s2 = 0; s2 < sel.length; s2++) {
-                sel[s2].selected = true;
-            }
+            restoreProjectSelection(proj, sel);
 
         } catch (e) {
             alert("Error: " + e.toString());
+        } finally {
+            app.endUndoGroup();
         }
-        app.endUndoGroup();
     }
 
     // ── Remove empty user folders ────────────────────────────────────
@@ -434,14 +483,6 @@
     // extracted.
 
     function removeEmptyUserFolders(structural) {
-
-        function isStructural(folder) {
-            for (var i = 0; i < structural.length; i++) {
-                if (folder === structural[i]) return true;
-            }
-            return false;
-        }
-
         var changed = true;
         while (changed) {
             changed = false;
@@ -452,7 +493,7 @@
             for (var j = 0; j < snap.length; j++) {
                 var folder = snap[j];
                 if (!(folder instanceof FolderItem)) continue;
-                if (isStructural(folder))             continue; // keep our structure
+                if (itemIsInList(folder, structural)) continue; // keep our structure
                 if (folder.numItems === 0) {
                     try { folder.remove(); changed = true; } catch (e) {}
                 }
@@ -478,8 +519,9 @@
             }
         } catch (e) {
             alert("Error: " + e.toString());
+        } finally {
+            app.endUndoGroup();
         }
-        app.endUndoGroup();
     }
 
     // Label numbers are After Effects' default label palette (Edit >
@@ -526,8 +568,9 @@
             }
         } catch (e) {
             alert("Error executing 'Reduce Project':\n" + e.toString());
+        } finally {
+            app.endUndoGroup();
         }
-        app.endUndoGroup();
     }
 
     // ── Button 4: Collect Files ───────────────────────────────────────
