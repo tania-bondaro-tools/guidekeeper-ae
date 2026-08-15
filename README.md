@@ -59,11 +59,17 @@ Structure**. The action:
 - performs its mutations in one **Build Structure** undo group.
 
 A selected group folder moves to `01_COMPS/MASTER`. Its nested composition
-hierarchy stays intact and all comps inside it become MASTER comps. Footage is
+hierarchy stays intact and all comps inside it become MASTER comps. If both a
+folder and one of its descendants are selected, GuideKeeper processes the
+top-level selected folder once and preserves the nested hierarchy. Footage is
 extracted recursively and sorted by the normal asset rules. Supported OVERLORD
-and matched Illustrator/Photoshop import groups remain intact. A full build can
-remove non-structural folders that become empty after their contents are
-extracted; it does not remove GuideKeeper folders or preserved import groups.
+and matched Illustrator/Photoshop import groups remain intact. A full build
+removes only nested folders that it empties while extracting assets from a
+selected composition group. It preserves the selected group itself, unrelated
+empty user folders, GuideKeeper folders, and preserved import groups.
+
+Each selected folder must contain at least one composition. Asset-only or empty
+folder selections stop before mutation and do not open an undo group.
 
 If the complete GuideKeeper structure already exists, **Build Structure**
 offers:
@@ -235,7 +241,10 @@ Canceling the confirmation preserves the original selection and invokes
 nothing. A valid structure with no MASTER comps stops with an explanation; it
 does not use a manual fallback. Empty manual selections, unsupported selected
 items, and selected folders containing no comps also stop before mutation.
-Native command lookup or execution errors are surfaced to the user.
+Native command lookup or execution errors are surfaced to the user. If native
+execution throws, GuideKeeper attempts to restore the pre-command selection; it
+does not claim to roll back any project changes the native command may already
+have made.
 
 Save a backup before reducing a project and inspect the confirmation list
 carefully. The command name is resolved through the After Effects host, so its
@@ -262,7 +271,9 @@ The background solid sources are stored in `SOLIDS`.
 the current After Effects version. If either exact-name comp already exists,
 GuideKeeper moves it to the project root if needed and does not overwrite its
 dimensions, layers, styling, or user-edited content. Repeated builds therefore
-do not duplicate or reset the documentation.
+do not duplicate or reset the documentation. If the documentation pair cannot
+be completed, newly created documentation comps and their solid sources are
+removed, and existing documentation comps are returned to their prior folders.
 
 ## Customize conventions
 

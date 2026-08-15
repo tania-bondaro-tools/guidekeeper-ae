@@ -348,6 +348,11 @@
                 alert("Please choose the main composition or a folder of compositions");
                 return null;
             }
+            if (sel[s] instanceof FolderItem &&
+                    collectCompsFromItems([sel[s]]).length === 0) {
+                alert("Each selected folder must contain at least one composition.");
+                return null;
+            }
         }
         return sel;
     }
@@ -405,6 +410,30 @@
         names.push(name);
     }
 
+    function folderIsDescendantOf(folder, possibleAncestor) {
+        var parent = folder.parentFolder;
+        while (parent && parent !== app.project.rootFolder) {
+            if (parent === possibleAncestor) return true;
+            parent = parent.parentFolder;
+        }
+        return false;
+    }
+
+    function keepTopLevelFolders(folders) {
+        var topLevel = [];
+        for (var i = 0; i < folders.length; i++) {
+            var hasSelectedAncestor = false;
+            for (var j = 0; j < folders.length; j++) {
+                if (i !== j && folderIsDescendantOf(folders[i], folders[j])) {
+                    hasSelectedAncestor = true;
+                    break;
+                }
+            }
+            if (!hasSelectedAncestor) topLevel.push(folders[i]);
+        }
+        return topLevel;
+    }
+
     function normalizeAssetName(name) {
         return (name || "").replace(/^\s+|\s+$/g, "").toLowerCase();
     }
@@ -454,7 +483,7 @@
     // "Logo.ai" and "Logo Layers". Only that exact basename relationship is
     // preserved; a generic or unrelated Layers folder is not a companion.
     function createAssetPreservationPlan(items) {
-        var plan = { imageItems: [], groupFolders: [] };
+        var plan = { imageItems: [] };
         var folders = [];
         var i;
 
@@ -463,7 +492,6 @@
             folders.push(items[i]);
             if (isOverlordFolder(items[i])) {
                 addUniqueItem(plan.imageItems, items[i]);
-                addUniqueItem(plan.groupFolders, items[i]);
             }
         }
 
@@ -477,29 +505,10 @@
                 if (!folderMatchesImportedAsset(folders[j], baseNames)) continue;
                 matched = true;
                 addUniqueItem(plan.imageItems, folders[j]);
-                addUniqueItem(plan.groupFolders, folders[j]);
             }
             if (matched) addUniqueItem(plan.imageItems, items[i]);
         }
         return plan;
-    }
-
-    function collectPreservedGroupFolders(proj) {
-        var containers = [proj.rootFolder];
-        var preserved = [];
-        var i;
-
-        for (i = 1; i <= proj.numItems; i++) {
-            var item = proj.item(i);
-            if (item instanceof FolderItem) containers.push(item);
-        }
-        for (i = 0; i < containers.length; i++) {
-            var plan = createAssetPreservationPlan(snapshotFolderItems(containers[i]));
-            for (var j = 0; j < plan.groupFolders.length; j++) {
-                addUniqueItem(preserved, plan.groupFolders[j]);
-            }
-        }
-        return preserved;
     }
 
     function createProjectStructure(root) {
@@ -681,25 +690,33 @@
     // Returns every comp discovered in the selected group hierarchy. The
     // caller currently needs only the mutations, while later operations can
     // reuse the discovery result without walking the hierarchy differently.
-    function processSelectedGroupFolder(folder, structure) {
+    function processSelectedGroupFolder(folder, structure, emptyFolderCandidates) {
         var masterComps = [];
+        emptyFolderCandidates = emptyFolderCandidates || [];
 
         function processFolder(currentFolder) {
             var children = snapshotFolderItems(currentFolder);
             var preservationPlan = createAssetPreservationPlan(children);
+            var extractedAsset = false;
             for (var i = 0; i < children.length; i++) {
                 var child = children[i];
                 if (itemIsInList(child, preservationPlan.imageItems)) {
                     child.parentFolder = structure.images;
+                    extractedAsset = true;
                 } else if (child instanceof FootageItem) {
                     child.parentFolder = classifyFootageItem(child, structure);
+                    extractedAsset = true;
                 } else if (child instanceof CompItem) {
                     child.label = 1;
                     masterComps.push(child);
                 } else if (child instanceof FolderItem) {
-                    processFolder(child);
+                    if (processFolder(child)) {
+                        addUniqueItem(emptyFolderCandidates, child);
+                        extractedAsset = true;
+                    }
                 }
             }
+            return extractedAsset;
         }
 
         processFolder(folder);
@@ -783,6 +800,25 @@
             .setValue(position);
     }
 
+    function cleanupDocumentationCreation(comp, backgroundSource) {
+        var cleanupErrors = [];
+        if (comp) {
+            try {
+                comp.remove();
+            } catch (compCleanupError) {
+                cleanupErrors.push("could not remove incomplete comp: " + compCleanupError.toString());
+            }
+        }
+        if (backgroundSource) {
+            try {
+                backgroundSource.remove();
+            } catch (solidCleanupError) {
+                cleanupErrors.push("could not remove background source: " + solidCleanupError.toString());
+            }
+        }
+        return cleanupErrors;
+    }
+
     function createDocumentationComp(name, headerText, bodyText, bodyFontSize, bodyPosition, solidsFolder) {
         var comp = null;
         var backgroundSource = null;
@@ -822,24 +858,12 @@
                 [0, 1, 163 / 255],
                 [60, 100]
             );
-            return comp;
+            return {
+                comp: comp,
+                backgroundSource: backgroundSource
+            };
         } catch (creationError) {
-            var cleanupErrors = [];
-            if (comp) {
-                try {
-                    comp.remove();
-                } catch (compCleanupError) {
-                    cleanupErrors.push("could not remove incomplete comp: " + compCleanupError.toString());
-                }
-            }
-            if (backgroundSource) {
-                try {
-                    backgroundSource.remove();
-                } catch (solidCleanupError) {
-                    cleanupErrors.push("could not remove background source: " + solidCleanupError.toString());
-                }
-            }
-
+            var cleanupErrors = cleanupDocumentationCreation(comp, backgroundSource);
             var message = "Could not create documentation comp '" + name + "': " +
                 creationError.toString();
             if (cleanupErrors.length > 0) {
@@ -849,14 +873,20 @@
         }
     }
 
-    function ensureDocumentationComp(root, solidsFolder, name, headerText, bodyText, bodyFontSize, bodyPosition) {
+    function ensureDocumentationComp(root, solidsFolder, name, headerText, bodyText, bodyFontSize, bodyPosition, createdRecords, movedRecords) {
         var existing = findCompByName(name);
         if (existing) {
-            existing.parentFolder = root;
+            if (existing.parentFolder !== root) {
+                movedRecords.push({
+                    comp: existing,
+                    parentFolder: existing.parentFolder
+                });
+                existing.parentFolder = root;
+            }
             return existing;
         }
 
-        var created = createDocumentationComp(
+        var creation = createDocumentationComp(
             name,
             headerText,
             bodyText,
@@ -864,8 +894,22 @@
             bodyPosition,
             solidsFolder
         );
-        created.parentFolder = root;
-        return created;
+        try {
+            creation.comp.parentFolder = root;
+        } catch (placementError) {
+            var cleanupErrors = cleanupDocumentationCreation(
+                creation.comp,
+                creation.backgroundSource
+            );
+            var message = "Could not place documentation comp '" + name + "': " +
+                placementError.toString();
+            if (cleanupErrors.length > 0) {
+                message += " (" + cleanupErrors.join("; ") + ")";
+            }
+            throw new Error(message);
+        }
+        createdRecords.push(creation);
+        return creation.comp;
     }
 
     function createDocumentationComps(root, solidsFolder) {
@@ -927,26 +971,60 @@
             "QUESTIONS: DAVIDLEBRIS@INSIDEIDEAS.AGENCY"
         ].join("\r");
 
-        var readmeComp = ensureDocumentationComp(
-            root,
-            solidsFolder,
-            "!_README",
-            "!_README",
-            readmeText,
-            24,
-            [60, 180]
-        );
-        var workflowGuideComp = ensureDocumentationComp(
-            root,
-            solidsFolder,
-            "!_WORKFLOW_GUIDE",
-            "!_WORKFLOW_GUIDE — HOW TO USE THIS TEMPLATE",
-            workflowGuideText,
-            15,
-            [60, 200]
-        );
+        var createdRecords = [];
+        var movedRecords = [];
+        try {
+            var readmeComp = ensureDocumentationComp(
+                root,
+                solidsFolder,
+                "!_README",
+                "!_README",
+                readmeText,
+                24,
+                [60, 180],
+                createdRecords,
+                movedRecords
+            );
+            var workflowGuideComp = ensureDocumentationComp(
+                root,
+                solidsFolder,
+                "!_WORKFLOW_GUIDE",
+                "!_WORKFLOW_GUIDE — HOW TO USE THIS TEMPLATE",
+                workflowGuideText,
+                15,
+                [60, 200],
+                createdRecords,
+                movedRecords
+            );
 
-        return [readmeComp, workflowGuideComp];
+            return [readmeComp, workflowGuideComp];
+        } catch (creationError) {
+            var cleanupErrors = [];
+            var i;
+            for (i = createdRecords.length - 1; i >= 0; i--) {
+                cleanupErrors = cleanupErrors.concat(cleanupDocumentationCreation(
+                    createdRecords[i].comp,
+                    createdRecords[i].backgroundSource
+                ));
+            }
+            for (i = movedRecords.length - 1; i >= 0; i--) {
+                try {
+                    movedRecords[i].comp.parentFolder = movedRecords[i].parentFolder;
+                } catch (moveCleanupError) {
+                    cleanupErrors.push(
+                        "could not restore existing comp '" +
+                        movedRecords[i].comp.name + "': " +
+                        moveCleanupError.toString()
+                    );
+                }
+            }
+            if (cleanupErrors.length > 0) {
+                throw new Error(
+                    creationError.toString() + " (" + cleanupErrors.join("; ") + ")"
+                );
+            }
+            throw creationError;
+        }
     }
 
     function labelMasterComps(masterFolder) {
@@ -1046,6 +1124,7 @@
                 selectedGroupFolders.push(sel[s]);
             }
         }
+        selectedGroupFolders = keepTopLevelFolders(selectedGroupFolders);
 
         app.beginUndoGroup("Build Structure");
         try {
@@ -1059,6 +1138,7 @@
             // treated as a composition group and relocated into MASTER.
             var snapshot = snapshotRootItems(proj, root);
             var rootPreservationPlan = createAssetPreservationPlan(snapshot);
+            var emptyFolderCandidates = [];
 
             // Process any selected group folders FIRST, so the main sort
             // loop below (root-level items only) never encounters them,
@@ -1070,7 +1150,11 @@
                     groupFolder.parentFolder = structure.images;
                     continue;
                 }
-                processSelectedGroupFolder(groupFolder, structure);
+                processSelectedGroupFolder(
+                    groupFolder,
+                    structure,
+                    emptyFolderCandidates
+                );
                 groupFolder.parentFolder = structure.master;
             }
 
@@ -1087,10 +1171,7 @@
                 rootPreservationPlan
             );
 
-            removeEmptyUserFolders(
-                structure.folders,
-                collectPreservedGroupFolders(proj)
-            );
+            removeEmptyUserFolders(emptyFolderCandidates);
 
             applyProjectItemLabels(structure);
 
@@ -1100,7 +1181,14 @@
             restoreProjectSelection(proj, sel);
 
         } catch (e) {
-            alert("Error: " + e.toString());
+            var message = "Error: " + e.toString();
+            try {
+                restoreProjectSelection(proj, sel);
+            } catch (selectionError) {
+                message += "\nCould not restore the original selection: " +
+                    selectionError.toString();
+            }
+            alert(message);
         } finally {
             app.endUndoGroup();
         }
@@ -1142,29 +1230,15 @@
     }
 
     // ── Remove empty user folders ────────────────────────────────────
-    // Deletes empty FolderItems that are NOT part of our structure above.
-    // Runs in a loop so nested empty user folders get cleaned up too.
-    // Checks the full project on every pass (not just root-level), since
-    // an empty folder can turn up at any depth once its contents are
-    // extracted.
+    // Removes only nested folders that this build actually emptied while
+    // extracting assets from selected composition groups. Candidates are
+    // recorded deepest-first, so parents can become empty safely in one pass.
 
-    function removeEmptyUserFolders(structural, preservedGroups) {
-        var changed = true;
-        while (changed) {
-            changed = false;
-            var snap = [];
-            for (var i = 1; i <= app.project.numItems; i++) {
-                snap.push(app.project.item(i));
-            }
-            for (var j = 0; j < snap.length; j++) {
-                var folder = snap[j];
-                if (!(folder instanceof FolderItem)) continue;
-                if (itemIsInList(folder, structural)) continue; // keep our structure
-                if (itemIsInList(folder, preservedGroups)) continue;
-                if (folder.numItems === 0) {
-                    folder.remove();
-                    changed = true;
-                }
+    function removeEmptyUserFolders(emptyFolderCandidates) {
+        for (var i = 0; i < emptyFolderCandidates.length; i++) {
+            var folder = emptyFolderCandidates[i];
+            if (folder.numItems === 0) {
+                folder.remove();
             }
         }
     }
@@ -1250,6 +1324,7 @@
             return;
         }
 
+        var originalSelection = proj.selection;
         var structure = findExistingProjectStructure(proj.rootFolder);
         var comps;
         if (structure) {
@@ -1279,6 +1354,7 @@
 
         if (!confirm(reduceProjectConfirmation(comps, !!structure))) return;
 
+        var selectionMayHaveChanged = false;
         try {
             var reduceId = app.findMenuCommandId("Reduce Project");
             if (!reduceId || reduceId === 0) {
@@ -1286,10 +1362,20 @@
                 return;
             }
 
+            selectionMayHaveChanged = true;
             restoreProjectSelection(proj, comps);
             app.executeCommand(reduceId);
         } catch (e) {
-            alert("Error executing 'Reduce Project':\n" + e.toString());
+            var message = "Error executing 'Reduce Project':\n" + e.toString();
+            if (selectionMayHaveChanged) {
+                try {
+                    restoreProjectSelection(proj, originalSelection);
+                } catch (selectionError) {
+                    message += "\nCould not restore the original selection: " +
+                        selectionError.toString();
+                }
+            }
+            alert(message);
         }
     }
 

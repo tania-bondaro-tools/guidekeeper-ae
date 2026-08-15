@@ -188,7 +188,10 @@ function createHarness(options) {
         var comp = this;
         this.layers = {
             addText: function (text) {
-                if (project.failAddText) throw new Error("Cannot add text layer");
+                if (project.failAddText ||
+                        project.failAddTextForCompName === comp.name) {
+                    throw new Error("Cannot add text layer");
+                }
                 var layer = new Layer("Text");
                 layer.comp = comp;
                 layer._textDocument = new TextDocument(text);

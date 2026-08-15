@@ -510,6 +510,76 @@ test("Build Structure processes a selected group folder while preserving its hie
     ]);
 });
 
+test("Build Structure preserves nested hierarchy when parent and child folders are both selected", function () {
+    var h = createHarness();
+    var group = h.addFolder("DELIVERABLE_GROUP");
+    var groupComp = h.addComp("Group Comp", group);
+    var nested = h.addFolder("Nested", group);
+    var nestedComp = h.addComp("Nested Comp", nested);
+    h.selectOnly([group, nested]);
+
+    h.click("Build Structure");
+
+    assert.equal(h.pathOf(group), "01_COMPS/MASTER/DELIVERABLE_GROUP");
+    assert.equal(h.pathOf(groupComp), "01_COMPS/MASTER/DELIVERABLE_GROUP/Group Comp");
+    assert.equal(
+        h.pathOf(nested),
+        "01_COMPS/MASTER/DELIVERABLE_GROUP/Nested",
+        "the descendant selection is processed through its selected ancestor"
+    );
+    assert.equal(
+        h.pathOf(nestedComp),
+        "01_COMPS/MASTER/DELIVERABLE_GROUP/Nested/Nested Comp"
+    );
+    assert.deepEqual(h.project.selection, [group, nested]);
+});
+
+test("Build Structure rejects selected folders without compositions before mutation", function () {
+    var h = createHarness();
+    var assetFolder = h.addFolder("SOURCE_ART");
+    var artwork = h.addFootage("artwork.ai", assetFolder);
+    h.selectOnly([assetFolder]);
+
+    h.click("Build Structure");
+
+    assert.deepEqual(h.alerts, [
+        "Each selected folder must contain at least one composition."
+    ]);
+    assert.deepEqual(h.undoEvents, []);
+    assert.equal(h.pathOf(assetFolder), "SOURCE_ART");
+    assert.equal(h.pathOf(artwork), "SOURCE_ART/artwork.ai");
+    assert.equal(h.findFolderByPath("01_COMPS"), null);
+    assert.deepEqual(h.project.selection, [assetFolder]);
+});
+
+test("Build Structure removes only folders emptied inside selected composition groups", function () {
+    var h = createHarness();
+    var master = h.addComp("Master");
+    var unrelatedEmpty = h.addFolder("EMPTY_ARCHIVE");
+    var group = h.addFolder("DELIVERABLE_GROUP");
+    h.addComp("Grouped Comp", group);
+    var intentionallyEmpty = h.addFolder("EMPTY_NOT_EXTRACTED", group);
+    var extractedFolder = h.addFolder("SOURCE_MEDIA", group);
+    var extracted = h.addFootage("plate.mov", extractedFolder);
+    h.selectOnly([master, group]);
+
+    h.click("Build Structure");
+
+    assert.equal(
+        h.pathOf(unrelatedEmpty),
+        "02_ASSETS/UNSORTED/EMPTY_ARCHIVE",
+        "an unrelated empty user folder is preserved"
+    );
+    assert.deepEqual(h.findByName("SOURCE_MEDIA"), []);
+    assert.equal(
+        h.pathOf(intentionallyEmpty),
+        "01_COMPS/MASTER/DELIVERABLE_GROUP/EMPTY_NOT_EXTRACTED",
+        "an already-empty nested folder is not treated as build-created emptiness"
+    );
+    assert.equal(h.pathOf(extracted), "02_ASSETS/FOOTAGE/plate.mov");
+    assert.deepEqual(h.project.selection, [master, group]);
+});
+
 test("Build and Rebuild preserve root OVERLORD and matched AI/PSD import groups", function () {
     var h = createHarness();
     var master = h.addComp("Master");
@@ -589,9 +659,13 @@ test("Rebuild preserves asset groups encountered inside a selected composition f
 
 test("Build Structure never relocates a selected folder that belongs to its own structure", function () {
     var h = createHarness();
-    var comps = h.addFolder("01_COMPS");
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+    h.click("Build Structure");
+    var comps = h.findFolderByPath("01_COMPS");
     h.selectOnly([comps]);
 
+    h.chooseDialog("Rebuild Structure");
     h.click("Build Structure");
 
     assert.equal(h.pathOf(comps), "01_COMPS");
@@ -921,6 +995,50 @@ test("undo groups close when mutating actions report an error", async function (
         ]);
     });
 
+    await t.test("second documentation comp initialization", function () {
+        var h = createHarness({ now: "2026-08-15T12:00:00" });
+        var comp = h.addComp("Master");
+        h.selectOnly([comp]);
+        h.project.autoSelectCreated = true;
+        h.project.failAddTextForCompName = "!_WORKFLOW_GUIDE";
+
+        h.click("Build Structure");
+
+        assert.match(
+            h.alerts[0],
+            /^Error: Error: Could not create documentation comp '!_WORKFLOW_GUIDE': Error: Cannot add text layer$/
+        );
+        assert.deepEqual(h.findByName("!_README"), []);
+        assert.deepEqual(h.findByName("!_README BACKGROUND"), []);
+        assert.deepEqual(h.findByName("!_WORKFLOW_GUIDE"), []);
+        assert.deepEqual(h.findByName("!_WORKFLOW_GUIDE BACKGROUND"), []);
+        assert.deepEqual(h.undoEvents, [
+            { type: "begin", name: "Build Structure" },
+            { type: "end" }
+        ]);
+        assert.deepEqual(
+            h.project.selection,
+            [comp],
+            "a failed build restores the selection captured before mutation"
+        );
+    });
+
+    await t.test("existing documentation placement", function () {
+        var h = createHarness({ now: "2026-08-15T12:00:00" });
+        var holding = h.addFolder("USER_DOCS");
+        var readme = h.addComp("!_README", holding);
+        var customLayer = h.addLayer(readme, { name: "Custom notes" });
+        var comp = h.addComp("Master");
+        h.selectOnly([comp]);
+        h.project.failAddTextForCompName = "!_WORKFLOW_GUIDE";
+
+        h.click("Build Structure");
+
+        assert.equal(h.pathOf(readme), "USER_DOCS/!_README");
+        assert.deepEqual(readme._layers, [customLayer]);
+        assert.deepEqual(h.findByName("!_WORKFLOW_GUIDE"), []);
+    });
+
     await t.test("Clean Up Root", function () {
         var h = createHarness();
         var comp = h.addComp("Master");
@@ -1141,7 +1259,7 @@ test("Reduce Project surfaces native command lookup failures without changing se
     });
 });
 
-test("Reduce Project applies confirmed comp selection before surfacing execution errors", function () {
+test("Reduce Project restores the original selection when native execution fails", function () {
     var h = createHarness();
     var folder = h.addFolder("Deliverables");
     var comp = h.addComp("Master", folder);
@@ -1152,7 +1270,7 @@ test("Reduce Project applies confirmed comp selection before surfacing execution
 
     h.click("Reduce Project");
 
-    assert.deepEqual(h.project.selection, [comp]);
+    assert.deepEqual(h.project.selection, [folder]);
     assert.deepEqual(h.alerts, [
         "Error executing 'Reduce Project':\nError: Native command failed"
     ]);
