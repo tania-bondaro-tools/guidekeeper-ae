@@ -74,14 +74,15 @@
             return btn;
         }
 
-        addBtn("Build Structure",     function () { buildStructure();   });
-        addBtn("Colour Code Layers",  function () { colourCodeLayers(); });
-        addBtn("Reduce Project",      function () { reduceProject();    });
-        addBtn("Collect files",       function () { collectFiles();     });
+        addBtn("Build Structure",      function () { buildStructure();   });
+        addBtn("Clean up the root",    function () { cleanUpRoot();      });
+        addBtn("Colour Code Layers",   function () { colourCodeLayers(); });
+        addBtn("Reduce Project",       function () { reduceProject();    });
+        addBtn("Collect files",        function () { collectFiles();     });
 
         // Threshold below which buttons switch from row → column.
-        // ~640px fits 4 text buttons (150px each) side by side with spacing/margins.
-        var ROW_THRESHOLD = 640;
+        // ~800px fits 5 text buttons (150px each) side by side with spacing/margins.
+        var ROW_THRESHOLD = 800;
 
         function applyOrientation() {
             var w = (pal.size && pal.size[0]) ? pal.size[0] : ROW_THRESHOLD + 1;
@@ -118,12 +119,18 @@
         return dot >= 0 ? n.substring(dot + 1).toLowerCase() : "";
     }
 
+    function findChildFolder(parentFolder, name) {
+        for (var i = 1; i <= parentFolder.numItems; i++) {
+            var item = parentFolder.item(i);
+            if (item instanceof FolderItem && item.name === name) return item;
+        }
+        return null;
+    }
+
     // Find an existing subfolder by name, or create it inside parentFolder
     function findOrCreate(parentFolder, name) {
-        for (var i = 1; i <= parentFolder.numItems; i++) {
-            var it = parentFolder.item(i);
-            if (it instanceof FolderItem && it.name === name) return it;
-        }
+        var existing = findChildFolder(parentFolder, name);
+        if (existing) return existing;
         var f = app.project.items.addFolder(name);
         f.parentFolder = parentFolder;
         return f;
@@ -242,6 +249,57 @@
         return structure;
     }
 
+    function findExistingProjectStructure(root) {
+        var structure = {};
+
+        structure.comps = findChildFolder(root, "01_COMPS");
+        if (!structure.comps) return null;
+        structure.master = findChildFolder(structure.comps, "MASTER");
+        structure.languages = findChildFolder(structure.comps, "LANGUAGES");
+        structure.precomps = findChildFolder(structure.comps, "PRECOMPS");
+        if (!structure.master || !structure.languages || !structure.precomps) return null;
+
+        structure.pcText = findChildFolder(structure.precomps, "TEXT");
+        structure.pcPackshots = findChildFolder(structure.precomps, "PACKSHOTS");
+        structure.pcLogos = findChildFolder(structure.precomps, "LOGOS");
+        structure.pcTrans = findChildFolder(structure.precomps, "TRANSITIONS");
+        structure.pcBg = findChildFolder(structure.precomps, "BACKGROUNDS");
+        structure.pcFx = findChildFolder(structure.precomps, "FX");
+        structure.pcUnsorted = findChildFolder(structure.precomps, "UNSORTED");
+        if (!structure.pcText || !structure.pcPackshots || !structure.pcLogos ||
+                !structure.pcTrans || !structure.pcBg || !structure.pcFx ||
+                !structure.pcUnsorted) {
+            return null;
+        }
+
+        structure.assets = findChildFolder(root, "02_ASSETS");
+        if (!structure.assets) return null;
+        structure.footage = findChildFolder(structure.assets, "FOOTAGE");
+        structure.images = findChildFolder(structure.assets, "IMAGES");
+        structure.audio = findChildFolder(structure.assets, "AUDIO");
+        structure.asPackshots = findChildFolder(structure.assets, "PACKSHOTS");
+        structure.asLogos = findChildFolder(structure.assets, "LOGOS");
+        structure.asUnsorted = findChildFolder(structure.assets, "UNSORTED");
+        if (!structure.footage || !structure.images || !structure.audio ||
+                !structure.asPackshots || !structure.asLogos || !structure.asUnsorted) {
+            return null;
+        }
+
+        structure.guides = findChildFolder(root, "03_GUIDES");
+        structure.solids = findChildFolder(root, "SOLIDS");
+        if (!structure.guides || !structure.solids) return null;
+
+        structure.folders = [
+            structure.comps, structure.master, structure.languages, structure.precomps,
+            structure.pcText, structure.pcPackshots, structure.pcLogos,
+            structure.pcTrans, structure.pcBg, structure.pcFx, structure.pcUnsorted,
+            structure.assets, structure.footage, structure.images, structure.audio,
+            structure.asPackshots, structure.asLogos, structure.asUnsorted,
+            structure.guides, structure.solids
+        ];
+        return structure;
+    }
+
     function isStructuralItem(item, structure) {
         return itemIsInList(item, structure.folders);
     }
@@ -314,7 +372,7 @@
             for (var i = 0; i < children.length; i++) {
                 var child = children[i];
                 if (child instanceof FootageItem) {
-                    try { child.parentFolder = classifyFootageItem(child, structure); } catch (e) {}
+                    child.parentFolder = classifyFootageItem(child, structure);
                 } else if (child instanceof CompItem) {
                     child.label = 1;
                     masterComps.push(child);
@@ -339,20 +397,38 @@
         return items;
     }
 
-    function processRootItems(items, selectedCompIds, structure, documentationComps) {
+    function processRootItems(items, selectedCompIds, structure, documentationComps, sortLooseFolders) {
         for (var i = items.length - 1; i >= 0; i--) {
             var item = items[i];
 
             if (itemIsInList(item, documentationComps)) continue;
             if (isStructuralItem(item, structure)) continue;
-            if (item instanceof FolderItem) continue;
+            if (item instanceof FolderItem) {
+                if (sortLooseFolders) {
+                    item.parentFolder = classifyProjectItem(item, selectedCompIds, structure);
+                    item.label = 15;
+                }
+                continue;
+            }
 
             var target = classifyProjectItem(item, selectedCompIds, structure);
             if (item instanceof CompItem && selectedCompIds[item.id]) {
                 item.label = 1;
             }
-            try { item.parentFolder = target; } catch (e) { /* skip unwritable items */ }
+            item.parentFolder = target;
         }
+    }
+
+    function findDocumentationComps(root) {
+        var documentationComps = [];
+        for (var i = 1; i <= root.numItems; i++) {
+            var item = root.item(i);
+            if (item instanceof CompItem &&
+                    (item.name === "!_README" || item.name === "!_WORKFLOW_GUIDE")) {
+                documentationComps.push(item);
+            }
+        }
+        return documentationComps;
     }
 
     function createDocumentationComps(root, masterComp) {
@@ -406,7 +482,59 @@
 
     // ── Button 1: Build Structure ─────────────────────────────────────
 
+    function chooseExistingStructureAction() {
+        var choice = "cancel";
+        var dialog = new Window("dialog", "GuideKeeper");
+        dialog.orientation = "column";
+        dialog.alignChildren = ["fill", "top"];
+        dialog.spacing = 10;
+        dialog.margins = 16;
+        dialog.add("statictext", undefined,
+            "Existing GuideKeeper structure detected.\n\nWhat would you like to do?");
+
+        var buttons = dialog.add("group");
+        buttons.orientation = "row";
+        var rebuildButton = buttons.add("button", undefined, "Rebuild Structure");
+        var cleanupButton = buttons.add("button", undefined, "Clean Up Root");
+        var cancelButton = buttons.add("button", undefined, "Cancel");
+
+        rebuildButton.onClick = function () {
+            choice = "rebuild";
+            dialog.close();
+        };
+        cleanupButton.onClick = function () {
+            choice = "cleanup";
+            dialog.close();
+        };
+        cancelButton.onClick = function () {
+            dialog.close();
+        };
+
+        dialog.defaultElement = cleanupButton;
+        dialog.cancelElement = cancelButton;
+        dialog.center();
+        dialog.show();
+        return choice;
+    }
+
     function buildStructure() {
+        var proj = app.project;
+        if (proj) {
+            var existingStructure = findExistingProjectStructure(proj.rootFolder);
+            if (existingStructure) {
+                var action = chooseExistingStructureAction();
+                if (action === "cancel") return;
+                if (action === "cleanup") {
+                    cleanUpRoot(existingStructure);
+                    return;
+                }
+            }
+        }
+
+        performFullBuild();
+    }
+
+    function performFullBuild() {
         var proj = app.project;
         var sel  = requireSelectedComps();
         if (!sel) return;
@@ -439,7 +567,7 @@
                 var groupFolder = selectedGroupFolders[gf];
                 if (isStructuralItem(groupFolder, structure)) continue;
                 processSelectedGroupFolder(groupFolder, structure);
-                try { groupFolder.parentFolder = structure.master; } catch (e) {}
+                groupFolder.parentFolder = structure.master;
             }
 
             // Snapshot only items currently sitting loose at the TRUE
@@ -454,7 +582,7 @@
             // ordering): assuming After Effects inserts reparented items
             // at the top of their destination folder, reverse processing
             // should keep the final order close to the original.
-            processRootItems(snapshot, selectedCompIds, structure, documentationComps);
+            processRootItems(snapshot, selectedCompIds, structure, documentationComps, false);
 
             removeEmptyUserFolders(structure.folders);
 
@@ -468,6 +596,40 @@
             // effect), then reselect exactly what was chosen at the start.
             restoreProjectSelection(proj, sel);
 
+        } catch (e) {
+            alert("Error: " + e.toString());
+        } finally {
+            app.endUndoGroup();
+        }
+    }
+
+    // ── Button 2: Clean Up Root ───────────────────────────────────────
+
+    function cleanUpRoot(existingStructure) {
+        var proj = app.project;
+        if (!proj) {
+            alert("No GuideKeeper structure detected. Build Structure first.");
+            return;
+        }
+
+        var structure = existingStructure || findExistingProjectStructure(proj.rootFolder);
+        if (!structure) {
+            alert("No GuideKeeper structure detected. Build Structure first.");
+            return;
+        }
+
+        var selection = proj.selection;
+        app.beginUndoGroup("Clean Up Root");
+        try {
+            var snapshot = snapshotRootItems(proj, proj.rootFolder);
+            processRootItems(
+                snapshot,
+                {},
+                structure,
+                findDocumentationComps(proj.rootFolder),
+                true
+            );
+            restoreProjectSelection(proj, selection);
         } catch (e) {
             alert("Error: " + e.toString());
         } finally {
@@ -501,7 +663,7 @@
         }
     }
 
-    // ── Button 2: Colour Code Layers ──────────────────────────────────
+    // ── Button 3: Colour Code Layers ──────────────────────────────────
     // Applies label colours to every layer in the CURRENT comp only.
 
     function colourCodeLayers() {
@@ -552,7 +714,7 @@
         return 0; // None: doesn't follow the naming convention, left unlabeled on purpose
     }
 
-    // ── Button 3: Reduce Project ──────────────────────────────────────
+    // ── Button 4: Reduce Project ──────────────────────────────────────
 
     function reduceProject() {
         var sel = requireSelectedComps();
@@ -573,7 +735,7 @@
         }
     }
 
-    // ── Button 4: Collect Files ───────────────────────────────────────
+    // ── Button 5: Collect Files ───────────────────────────────────────
 
     function collectFiles() {
         if (!app.project) return;

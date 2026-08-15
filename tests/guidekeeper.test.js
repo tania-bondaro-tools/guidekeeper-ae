@@ -111,6 +111,7 @@ test("Build Structure reuses folders and documentation comps without overwriting
     readme._layers[0].text = "Producer notes";
     workflowGuide._layers[0].text = "Custom workflow";
 
+    h.chooseDialog("Rebuild Structure");
     h.click("Build Structure");
 
     assert.equal(h.project.numItems, firstCount);
@@ -148,6 +149,7 @@ test("Build Structure processes a selected group folder while preserving its hie
     assert.equal(deepComp.label, 1);
     assert.deepEqual(h.project.selection, [group]);
 
+    h.chooseDialog("Rebuild Structure");
     h.click("Build Structure");
 
     assert.equal(h.project.numItems, firstRunCount, "repeat runs reuse the same structure and documentation comps");
@@ -173,6 +175,158 @@ test("Build Structure never relocates a selected folder that belongs to its own 
     assert.equal(h.pathOf(comps), "01_COMPS");
     assert.equal(h.findFolderByPath("01_COMPS/MASTER/01_COMPS"), null);
     assert.deepEqual(h.project.selection, [comps]);
+});
+
+test("Build Structure detects only a complete GuideKeeper structure", function () {
+    var h = createHarness();
+    h.addFolder("01_COMPS");
+    h.addFolder("02_ASSETS");
+    h.addFolder("03_GUIDES");
+    h.addFolder("SOLIDS");
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+
+    h.click("Build Structure");
+
+    assert.deepEqual(h.dialogs, [], "an incomplete structure is repaired as a first build");
+    assert.equal(h.pathOf(master), "01_COMPS/MASTER/Master");
+    assert.equal(h.findFolderByPath("01_COMPS/PRECOMPS/UNSORTED").name, "UNSORTED");
+    assert.equal(h.findFolderByPath("02_ASSETS/UNSORTED").name, "UNSORTED");
+});
+
+test("existing-structure Cancel makes no mutation and opens no undo group", function () {
+    var h = createHarness();
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+    h.click("Build Structure");
+    var loose = h.addComp("txt_Later");
+    var countBefore = h.project.numItems;
+    var undoBefore = h.undoEvents.slice();
+
+    h.chooseDialog("Cancel");
+    h.click("Build Structure");
+
+    assert.equal(h.project.numItems, countBefore);
+    assert.equal(h.pathOf(loose), "txt_Later");
+    assert.deepEqual(h.project.selection, [master]);
+    assert.deepEqual(h.undoEvents, undoBefore);
+    assert.deepEqual(h.dialogs, [{
+        title: "GuideKeeper",
+        message: "Existing GuideKeeper structure detected.\n\nWhat would you like to do?",
+        choice: "Cancel"
+    }]);
+});
+
+test("Clean up the root sorts only loose root items and is safe to rerun", function () {
+    var h = createHarness();
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+    h.click("Build Structure");
+
+    var organizedComp = h.addComp("txt_Organized", h.findFolderByPath("01_COMPS/MASTER"));
+    var organizedAsset = h.addFootage("organized.mov", h.findFolderByPath("02_ASSETS/IMAGES"));
+    organizedComp.label = 6;
+    organizedAsset.label = 4;
+
+    var looseText = h.addComp("TXT_Later");
+    var looseGuide = h.addComp("Client Safe Zone");
+    var looseVideo = h.addFootage("new.MOV");
+    var looseImage = h.addFootage("logo_New.AI");
+    var looseUnknown = h.addFootage("new.dat");
+    var looseFolder = h.addFolder("IMPORT_BATCH");
+    var nestedComp = h.addComp("txt_Nested", looseFolder);
+    var nestedAsset = h.addFootage("nested.wav", looseFolder);
+    var readme = h.findByName("!_README")[0];
+    var workflowGuide = h.findByName("!_WORKFLOW_GUIDE")[0];
+    h.selectOnly([looseText, looseFolder]);
+
+    h.click("Clean up the root");
+
+    assert.equal(h.pathOf(looseText), "01_COMPS/PRECOMPS/TEXT/TXT_Later");
+    assert.equal(h.pathOf(looseGuide), "03_GUIDES/Client Safe Zone");
+    assert.equal(h.pathOf(looseVideo), "02_ASSETS/FOOTAGE/new.MOV");
+    assert.equal(h.pathOf(looseImage), "02_ASSETS/LOGOS/logo_New.AI");
+    assert.equal(h.pathOf(looseUnknown), "02_ASSETS/UNSORTED/new.dat");
+    assert.equal(h.pathOf(looseFolder), "02_ASSETS/UNSORTED/IMPORT_BATCH");
+    assert.equal(h.pathOf(nestedComp), "02_ASSETS/UNSORTED/IMPORT_BATCH/txt_Nested");
+    assert.equal(h.pathOf(nestedAsset), "02_ASSETS/UNSORTED/IMPORT_BATCH/nested.wav");
+    assert.equal(looseFolder.label, 15, "a loose folder moved by cleanup is Sandstone");
+    assert.equal(h.pathOf(organizedComp), "01_COMPS/MASTER/txt_Organized");
+    assert.equal(h.pathOf(organizedAsset), "02_ASSETS/IMAGES/organized.mov");
+    assert.equal(organizedComp.label, 6, "organized comp labels are untouched");
+    assert.equal(organizedAsset.label, 4, "organized asset labels are untouched");
+    assert.equal(h.pathOf(readme), "!_README");
+    assert.equal(h.pathOf(workflowGuide), "!_WORKFLOW_GUIDE");
+    assert.deepEqual(h.project.selection, [looseText, looseFolder]);
+
+    var pathsAfterFirstRun = h.project._items.map(h.pathOf).sort();
+    h.click("Clean up the root");
+
+    assert.deepEqual(h.project._items.map(h.pathOf).sort(), pathsAfterFirstRun);
+    assert.deepEqual(h.project.selection, [looseText, looseFolder]);
+    assert.deepEqual(h.undoEvents.slice(-4), [
+        { type: "begin", name: "Clean Up Root" },
+        { type: "end" },
+        { type: "begin", name: "Clean Up Root" },
+        { type: "end" }
+    ]);
+});
+
+test("existing-structure Clean Up Root choice uses root-only maintenance", function () {
+    var h = createHarness();
+    var master = h.addComp("Master");
+    h.selectOnly([master]);
+    h.click("Build Structure");
+    var loose = h.addFootage("late.wav");
+    var nested = h.addFootage("stay.mov", h.findFolderByPath("01_COMPS/MASTER"));
+
+    h.chooseDialog("Clean Up Root");
+    h.click("Build Structure");
+
+    assert.equal(h.pathOf(loose), "02_ASSETS/AUDIO/late.wav");
+    assert.equal(h.pathOf(nested), "01_COMPS/MASTER/stay.mov");
+    assert.deepEqual(h.undoEvents.slice(-2), [
+        { type: "begin", name: "Clean Up Root" },
+        { type: "end" }
+    ]);
+});
+
+test("existing-structure Rebuild Structure explicitly performs the full build workflow", function () {
+    var h = createHarness();
+    var firstMaster = h.addComp("First Master");
+    h.selectOnly([firstMaster]);
+    h.click("Build Structure");
+    var nextMaster = h.addComp("Next Master");
+    var selectedGroup = h.addFolder("SELECTED_GROUP");
+    var groupedComp = h.addComp("Grouped", selectedGroup);
+    var groupedAsset = h.addFootage("plate.mp4", selectedGroup);
+    h.selectOnly([nextMaster, selectedGroup]);
+
+    h.chooseDialog("Rebuild Structure");
+    h.click("Build Structure");
+
+    assert.equal(h.pathOf(nextMaster), "01_COMPS/MASTER/Next Master");
+    assert.equal(h.pathOf(selectedGroup), "01_COMPS/MASTER/SELECTED_GROUP");
+    assert.equal(h.pathOf(groupedComp), "01_COMPS/MASTER/SELECTED_GROUP/Grouped");
+    assert.equal(h.pathOf(groupedAsset), "02_ASSETS/FOOTAGE/plate.mp4");
+    assert.equal(nextMaster.label, 1);
+    assert.equal(groupedComp.label, 1);
+    assert.deepEqual(h.project.selection, [nextMaster, selectedGroup]);
+    assert.deepEqual(h.undoEvents.slice(-2), [
+        { type: "begin", name: "Build Structure" },
+        { type: "end" }
+    ]);
+});
+
+test("Clean up the root requires an existing complete structure", function () {
+    var h = createHarness();
+    var loose = h.addFootage("clip.mov");
+
+    h.click("Clean up the root");
+
+    assert.equal(h.pathOf(loose), "clip.mov");
+    assert.deepEqual(h.alerts, ["No GuideKeeper structure detected. Build Structure first."]);
+    assert.deepEqual(h.undoEvents, []);
 });
 
 test("Colour Code Layers applies case-insensitive prefix precedence and type fallbacks", function () {
@@ -243,6 +397,23 @@ test("undo groups close when mutating actions report an error", async function (
         assert.match(h.alerts[0], /^Error: Error: Cannot create folder$/);
         assert.deepEqual(h.undoEvents, [
             { type: "begin", name: "Build Structure" },
+            { type: "end" }
+        ]);
+    });
+
+    await t.test("Clean Up Root", function () {
+        var h = createHarness();
+        var comp = h.addComp("Master");
+        h.selectOnly([comp]);
+        h.click("Build Structure");
+        var loose = h.addFootage("late.mov");
+        loose.failReparent = true;
+
+        h.click("Clean up the root");
+
+        assert.match(h.alerts[0], /^Error: Error: Cannot move late.mov$/);
+        assert.deepEqual(h.undoEvents.slice(-2), [
+            { type: "begin", name: "Clean Up Root" },
             { type: "end" }
         ]);
     });

@@ -12,6 +12,8 @@ function createHarness() {
     var commandLookups = [];
     var executedCommands = [];
     var commandIds = {};
+    var dialogChoices = [];
+    var dialogs = [];
 
     function SolidSource() {}
 
@@ -253,24 +255,61 @@ function createHarness() {
         this.kind = kind;
         this.title = title;
         this.size = [800, 200];
+        this._children = [];
+        this._closed = false;
         this.layout = {
             layout: function () {},
             resize: function () {}
         };
     }
 
-    Window.prototype.add = function (kind, bounds, label) {
-        var button = {
+    function addControl(owner, kind, label) {
+        var control = {
             kind: kind,
             label: label,
             onClick: null,
-            size: null
+            size: null,
+            _children: []
         };
-        buttons[label] = button;
-        return button;
+        control.add = function (childKind, bounds, childLabel) {
+            return addControl(control, childKind, childLabel);
+        };
+        owner._children.push(control);
+        if (kind === "button") buttons[label] = control;
+        return control;
+    }
+
+    function findControl(owner, kind, label) {
+        for (var i = 0; i < owner._children.length; i++) {
+            var child = owner._children[i];
+            if (child.kind === kind && child.label === label) return child;
+            var nested = findControl(child, kind, label);
+            if (nested) return nested;
+        }
+        return null;
+    }
+
+    Window.prototype.add = function (kind, bounds, label) {
+        return addControl(this, kind, label);
     };
     Window.prototype.center = function () {};
-    Window.prototype.show = function () {};
+    Window.prototype.close = function () {
+        this._closed = true;
+    };
+    Window.prototype.show = function () {
+        if (this.kind !== "dialog") return;
+        var choice = dialogChoices.length ? dialogChoices.shift() : "Cancel";
+        dialogs.push({
+            title: this.title,
+            message: this._children[0] ? this._children[0].label : "",
+            choice: choice
+        });
+        var button = findControl(this, "button", choice);
+        if (!button || typeof button.onClick !== "function") {
+            throw new Error("Dialog button not found: " + choice);
+        }
+        button.onClick();
+    };
 
     var context = vm.createContext({
         app: app,
@@ -337,6 +376,7 @@ function createHarness() {
         commandLookups: commandLookups,
         executedCommands: executedCommands,
         commandIds: commandIds,
+        dialogs: dialogs,
         classes: {
             CompItem: CompItem,
             FolderItem: FolderItem,
@@ -359,6 +399,9 @@ function createHarness() {
         },
         selectOnly: function (items) {
             project._selectOnly(items);
+        },
+        chooseDialog: function (label) {
+            dialogChoices.push(label);
         },
         click: click,
         pathOf: pathOf,
