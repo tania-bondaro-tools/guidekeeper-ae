@@ -9,10 +9,9 @@ Built for a small motion design team spread across multiple locations sharing Af
 | Button | Scope | Action |
 |---|---|---|
 | Build Structure | Whole project | Builds the full structure on first use; on existing structures, offers Rebuild Structure, Clean Up Root, or Cancel |
-| Clean up the root | Project root only | Sorts newly imported loose comps, assets, and folders without touching organised content |
-| Colour Code Layers | Current comp only | Applies a label colour to every layer, by name prefix or layer type |
-| Reduce Project | Whole project | Deletes anything unused by the selected composition(s), native After Effects command |
-| Collect files | Whole project | Gathers all assets into one folder for handoff, native After Effects command |
+| Clean Up Root | Project root only | Sorts newly imported loose comps, assets, and folders without touching organised content |
+| Colour Code Current Comp | Current comp only | Applies a label colour to every layer, by name prefix or layer type |
+| Reduce Project | Whole project | Confirms the MASTER or manually selected comp set, then runs After Effects' native reduction command |
 
 Everything below is the convention the script ships with by default. None of it is hardcoded logic, the prefix lists and colour mapping sit in one place near the top of the script, plain constants you edit to match your own team's naming.
 
@@ -126,9 +125,9 @@ Build, Rebuild, and Clean Up Root apply After Effects Project-panel labels separ
 - Every composition anywhere below `01_COMPS/MASTER`, including comps inside nested selected groups, uses label 1 (Red).
 - Unrelated folders and comps outside `MASTER` keep their existing labels.
 
-These operations do not alter layer labels inside compositions. Use **Colour Code Layers** explicitly for that separate current-comp workflow.
+These operations do not alter layer labels inside compositions. Use **Colour Code Current Comp** explicitly for that separate current-comp workflow.
 
-### Clean up the root
+### Clean Up Root
 
 Use this after importing new material into a project that already has a complete GuideKeeper structure. It processes only items sitting loose at the true project root:
 
@@ -139,7 +138,7 @@ Use this after importing new material into a project that already has a complete
 
 The action is safe to rerun, preserves the current Project-panel selection, refreshes workflow-folder and recursive `MASTER` comp labels, and runs inside one **Clean Up Root** undo group. If no complete GuideKeeper structure exists, it asks you to run Build Structure first and makes no mutation.
 
-### Colour Code Layers
+### Colour Code Current Comp
 
 Operates only on whatever comp is currently open and active, not the whole project, and not recursively into nested precomps. Applies After Effects' native label colours:
 
@@ -164,9 +163,13 @@ Prefix matches are checked first; the light/camera/precomp rules only apply as a
 
 One thing worth knowing: label colours and names are a local After Effects preference, not something stored in the project file. This script assumes the default palette (Red is label 1, Green is label 9, and so on); if a teammate has customised their own label names, the same script will show different colours on their machine. Sharing a label colour preset (Preferences > Labels > Export) alongside the script keeps everyone in sync.
 
-### Reduce Project / Collect files
+### Reduce Project
 
-Both are thin wrappers around native After Effects commands. Reduce Project requires a comp selection first, like Build Structure; Collect files needs no precondition.
+When a complete GuideKeeper structure exists, Reduce Project ignores unrelated Project-panel selections and recursively finds every composition below `01_COMPS/MASTER`, including comps inside nested group folders. If `MASTER` contains no compositions, the action explains what is missing and stops.
+
+Without a complete GuideKeeper structure, select one or more compositions and/or folders containing compositions. Folder contents are searched recursively and duplicate comps are included only once. Empty selections, unsupported item types, and folders containing no comps are rejected without changing the project.
+
+Before any selection change or native command lookup, GuideKeeper shows the resolved comp names (with a count and abbreviated list for large sets) and asks for confirmation. Cancel leaves the existing selection untouched and invokes nothing. After confirmation, GuideKeeper looks up After Effects' native **Reduce Project** command, selects exactly the resolved comps, and invokes it. Command lookup and host execution failures are reported directly. The native modal command is not wrapped in an extra GuideKeeper undo group.
 
 ## Customising the rules
 
@@ -210,10 +213,10 @@ This standard contributor and CI path uses only Node's built-in test runner and 
 - Run **Build Structure** on comps and a nested group folder; inspect the actual moves, preserved hierarchy, Project-panel labels, and selection restoration.
 - Import representative OVERLORD, layered Illustrator, and layered Photoshop groups; confirm Build/Rebuild and root cleanup keep each hierarchy and source/Layers pair intact under `02_ASSETS/IMAGES`.
 - Run Build Structure again and exercise **Rebuild Structure**, **Clean Up Root**, and **Cancel**; confirm Cancel is mutation-free and cleanup touches only loose root items.
-- Run **Clean up the root** twice with loose comps, footage, and an intact folder; confirm organised content and folder children remain untouched.
-- Run **Colour Code Layers** on representative prefix, light, camera, precomp, and unmatched layers with the default label palette.
+- Run **Clean Up Root** twice with loose comps, footage, and an intact folder; confirm organised content and folder children remain untouched.
+- Run **Colour Code Current Comp** on representative prefix, light, camera, precomp, and unmatched layers with the default label palette.
 - Undo each mutating action once and confirm the project returns to its prior state; also exercise invalid-selection and host error alerts.
-- Open the native **Reduce Project** and **Collect Files** dialogs and cancel them without changing the test project.
+- Exercise **Reduce Project** with nested MASTER folders and manual folder selections; cancel GuideKeeper's confirmation once, then accept it and cancel the native dialog.
 
 ## License
 

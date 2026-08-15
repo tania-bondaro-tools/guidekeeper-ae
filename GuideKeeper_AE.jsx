@@ -47,9 +47,9 @@
 // After sorting, every GuideKeeper workflow folder is coloured Sandstone
 // and every comp anywhere below MASTER is coloured Red, both at the
 // Project-panel item level (separate from the per-layer colours Colour
-// Code Layers sets on layers).
+// Code Current Comp sets on layers).
 //
-// ── Colour Code Layers ──────────────────────────────────────────────
+// ── Colour Code Current Comp ────────────────────────────────────────
 // Applies label colours to every layer in the CURRENT comp, per the
 // prefix/colour table below.
 
@@ -76,15 +76,14 @@
             return btn;
         }
 
-        addBtn("Build Structure",      function () { buildStructure();   });
-        addBtn("Clean up the root",    function () { cleanUpRoot();      });
-        addBtn("Colour Code Layers",   function () { colourCodeLayers(); });
-        addBtn("Reduce Project",       function () { reduceProject();    });
-        addBtn("Collect files",        function () { collectFiles();     });
+        addBtn("Build Structure",          function () { buildStructure();   });
+        addBtn("Clean Up Root",            function () { cleanUpRoot();      });
+        addBtn("Colour Code Current Comp", function () { colourCodeLayers(); });
+        addBtn("Reduce Project",           function () { reduceProject();    });
 
         // Threshold below which buttons switch from row → column.
-        // ~800px fits 5 text buttons (150px each) side by side with spacing/margins.
-        var ROW_THRESHOLD = 800;
+        // ~650px fits 4 text buttons (150px each) side by side with spacing/margins.
+        var ROW_THRESHOLD = 650;
 
         function applyOrientation() {
             var w = (pal.size && pal.size[0]) ? pal.size[0] : ROW_THRESHOLD + 1;
@@ -152,8 +151,7 @@
     }
 
     // Require at least 1 selected item, and every selected item must be a
-    // CompItem or a FolderItem. Shared by "Build Structure" and
-    // "Reduce Project".
+    // CompItem or a FolderItem.
     function requireSelectedComps() {
         var proj = app.project;
         if (!proj) { alert("Please choose the main composition or a folder of compositions"); return null; }
@@ -470,6 +468,30 @@
             items.push(folder.item(i));
         }
         return items;
+    }
+
+    function collectCompsFromItems(items) {
+        var comps = [];
+
+        function collectFromFolder(folder) {
+            var children = snapshotFolderItems(folder);
+            for (var i = 0; i < children.length; i++) {
+                if (children[i] instanceof CompItem) {
+                    addUniqueItem(comps, children[i]);
+                } else if (children[i] instanceof FolderItem) {
+                    collectFromFolder(children[i]);
+                }
+            }
+        }
+
+        for (var i = 0; i < items.length; i++) {
+            if (items[i] instanceof CompItem) {
+                addUniqueItem(comps, items[i]);
+            } else if (items[i] instanceof FolderItem) {
+                collectFromFolder(items[i]);
+            }
+        }
+        return comps;
     }
 
     // Returns every comp discovered in the selected group hierarchy. The
@@ -804,7 +826,7 @@
         }
     }
 
-    // ── Button 3: Colour Code Layers ──────────────────────────────────
+    // ── Button 3: Colour Code Current Comp ────────────────────────────
     // Applies label colours to every layer in the CURRENT comp only.
 
     function colourCodeLayers() {
@@ -814,7 +836,7 @@
             return;
         }
 
-        app.beginUndoGroup("Colour Code Layers");
+        app.beginUndoGroup("Colour Code Current Comp");
         try {
             for (var i = 1; i <= comp.numLayers; i++) {
                 var layer = comp.layer(i);
@@ -857,39 +879,74 @@
 
     // ── Button 4: Reduce Project ──────────────────────────────────────
 
-    function reduceProject() {
-        var sel = requireSelectedComps();
-        if (!sel) return;
-
-        app.beginUndoGroup("Reduce Project");
-        try {
-            var reduceId = app.findMenuCommandId("Reduce Project");
-            if (reduceId && reduceId !== 0) {
-                app.executeCommand(reduceId);
-            } else {
-                alert("Cannot find 'Reduce Project' command.");
-            }
-        } catch (e) {
-            alert("Error executing 'Reduce Project':\n" + e.toString());
-        } finally {
-            app.endUndoGroup();
+    function reduceProjectConfirmation(comps, usingStructure) {
+        var source = usingStructure
+            ? "the compositions in 01_COMPS/MASTER"
+            : "the selected compositions";
+        var noun = comps.length === 1 ? "composition" : "compositions";
+        var lines = [
+            "Reduce Project will keep only assets used by " + source + ".",
+            "",
+            comps.length + " " + noun + ":"
+        ];
+        var shown = Math.min(comps.length, 8);
+        for (var i = 0; i < shown; i++) {
+            lines.push("- " + comps[i].name);
         }
+        if (comps.length > shown) {
+            lines.push("- ...and " + (comps.length - shown) + " more");
+        }
+        lines.push("", "Reduce the project based on " + (comps.length === 1 ? "this composition?" : "these compositions?"));
+        return lines.join("\n");
     }
 
-    // ── Button 5: Collect Files ───────────────────────────────────────
+    function reduceProject() {
+        var proj = app.project;
+        if (!proj) {
+            alert("Open a project before using Reduce Project.");
+            return;
+        }
 
-    function collectFiles() {
-        if (!app.project) return;
-        try {
-            var id = app.findMenuCommandId("Collect Files...");
-            if (!id || id === 0) id = app.findMenuCommandId("Collect Files");
-            if (id && id !== 0) {
-                app.executeCommand(id);
-            } else {
-                alert("Cannot find 'Collect Files...' command.");
+        var structure = findExistingProjectStructure(proj.rootFolder);
+        var comps;
+        if (structure) {
+            comps = collectCompsFromItems([structure.master]);
+            if (comps.length === 0) {
+                alert("GuideKeeper structure detected, but no compositions were found in 01_COMPS/MASTER. Add at least one MASTER composition before using Reduce Project.");
+                return;
             }
+        } else {
+            var selection = proj.selection;
+            if (!selection || selection.length === 0) {
+                alert("Select one or more compositions, or folders containing compositions, before using Reduce Project.");
+                return;
+            }
+            for (var i = 0; i < selection.length; i++) {
+                if (!(selection[i] instanceof CompItem) && !(selection[i] instanceof FolderItem)) {
+                    alert("Select only compositions or folders containing compositions before using Reduce Project.");
+                    return;
+                }
+            }
+            comps = collectCompsFromItems(selection);
+            if (comps.length === 0) {
+                alert("No compositions were found in the current selection. Select a composition or a folder containing compositions.");
+                return;
+            }
+        }
+
+        if (!confirm(reduceProjectConfirmation(comps, !!structure))) return;
+
+        try {
+            var reduceId = app.findMenuCommandId("Reduce Project");
+            if (!reduceId || reduceId === 0) {
+                alert("Cannot find 'Reduce Project' command.");
+                return;
+            }
+
+            restoreProjectSelection(proj, comps);
+            app.executeCommand(reduceId);
         } catch (e) {
-            alert("Error executing 'Collect Files...':\n" + e.toString());
+            alert("Error executing 'Reduce Project':\n" + e.toString());
         }
     }
 
