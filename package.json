@@ -1,0 +1,7 @@
+{
+  "name": "guidekeeper-ae",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/guidekeeper.test.js"
+  }
+}
